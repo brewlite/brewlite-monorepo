@@ -1,0 +1,635 @@
+{
+  "categories": [
+    {
+      "id": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e",
+      "name": "Cà phê",
+      "isActive": true
+    },
+    {
+      "id": "b1ccf399-a9fc-4a09-ac5e-2f78d8ce7f5d",
+      "name": "Trà sữa",
+      "isActive": true
+    },
+    {
+      "id": "3a3f711e-501d-4d0d-ae9c-f2e792f08f83",
+      "name": "Trà trái cây",
+      "isActive": true
+    },
+    {
+      "id": "d39adeca-a43c-4abe-b145-a3e321e51ae9",
+      "name": "Đá xay & Matcha",
+      "isActive": true
+    }
+  ],
+  "products": [
+    {
+      "id": "ebad74c4-5246-4f80-ba07-25a297a507fb",
+      "name": "Affogato",
+      "description": "Espresso đậm đà kết hợp kem vani mát lạnh.",
+      "basePrice": "45000",
+      "imageUrl": "/images/products/Affogato.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "156fa250-e0f8-4ba2-9ac6-bfa88ba6a5ac",
+      "name": "Americano",
+      "description": "Espresso pha cùng nước, hương cà phê rõ và hậu vị thanh.",
+      "basePrice": "29000",
+      "imageUrl": "/images/products/americano.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "25c5c291-aadf-4a47-a02a-da54a8876703",
+      "name": "Bạc Xỉu",
+      "description": "Sữa béo dịu hòa cùng cà phê thơm, vị ngọt nhẹ.",
+      "basePrice": "32000",
+      "imageUrl": "/images/products/bac-xiu.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "48625efe-c3f0-4c0e-ac81-5e65f12b6040",
+      "name": "Cold Brew",
+      "description": "Cà phê ủ lạnh, hương thơm dịu và vị thanh mát.",
+      "basePrice": "35000",
+      "imageUrl": "/images/products/cold-brew.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "b6ed8c64-ed80-40b5-83fe-6711953fd3bc",
+      "name": "Cà Phê Muối",
+      "description": "Cà phê đậm vị cùng lớp kem muối béo mịn.",
+      "basePrice": "35000",
+      "imageUrl": "/images/products/ca-phe-muoi.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "16ba3e19-5008-4ec0-8550-8aa0df530696",
+      "name": "Cà Phê Trứng",
+      "description": "Cà phê thơm nồng phủ lớp kem trứng mềm mịn.",
+      "basePrice": "39000",
+      "imageUrl": "/images/products/ca-phe-trung.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "d1bb279c-8b7a-4740-baa3-61b2ea33accf",
+      "name": "Cà phê sữa đá ",
+      "description": "Cà phê đậm đà kết hợp với sữa đặc",
+      "basePrice": "29000",
+      "imageUrl": "/images/products/ca-phe-sua-da.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "863778e0-5704-43e3-89b0-09c2d8b3e74c",
+      "name": "Cà phê sữa đá BrewLite",
+      "description": "Hạt cà phê Robusta phối Arabica đậm đà vị truyền thống hòa quyện cùng sữa đặc béo ngậy.",
+      "basePrice": "29000",
+      "imageUrl": "/images/products/ca-phe-sua-da.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "94d8ab9a-8021-4285-beb3-3b52bf598ecf",
+      "name": "Dalgona",
+      "description": "Sữa tươi kết hợp lớp cà phê đánh bông thơm béo.",
+      "basePrice": "39000",
+      "imageUrl": "/images/products/dalgona.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "989c485e-2b10-4734-a188-df64fdef969f",
+      "name": "Espresso",
+      "description": "Cà phê chiết xuất đậm đà với lớp crema thơm.",
+      "basePrice": "25000",
+      "imageUrl": "/images/products/espresso.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "e72775d9-ce5b-45f2-a668-f72cf1a102b4",
+      "name": "Latte Hạnh Nhân",
+      "description": "Espresso thơm dịu cùng sữa tươi thanh trùng và lớp bọt sữa mịn màng kèm sốt hạnh nhân.",
+      "basePrice": "39000",
+      "imageUrl": "/images/products/latte-hanh-nhan.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "4252649b-649f-44d3-b36b-81b208b995cf",
+      "name": "Matcha Đá Xay Kem Tuyết",
+      "description": "Matcha Uji Nhật Bản nguyên chất xay mịn cùng sữa béo và lớp bông kem ngọt ngào.",
+      "basePrice": "45000",
+      "imageUrl": "/images/products/matcha-da-xoay-kem-tuyet.jpg",
+      "isAvailable": true,
+      "categoryId": "d39adeca-a43c-4abe-b145-a3e321e51ae9"
+    },
+    {
+      "id": "cc988aba-e6aa-4731-858f-78414c464794",
+      "name": "Tiramisu Latte",
+      "description": "Latte béo mịn với hương cacao và cảm hứng tiramisu.",
+      "basePrice": "45000",
+      "imageUrl": "/images/products/tiramisu-latte.jpg",
+      "isAvailable": true,
+      "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
+    },
+    {
+      "id": "5283c835-c90c-4b72-b2e3-258433d2357a",
+      "name": "Trà Dâu",
+      "description": "Trà thơm kết hợp vị dâu chua ngọt, thanh mát.",
+      "basePrice": "35000",
+      "imageUrl": "/images/products/tra-dau.jpg",
+      "isAvailable": true,
+      "categoryId": "3a3f711e-501d-4d0d-ae9c-f2e792f08f83"
+    },
+    {
+      "id": "d2c79aa4-4285-4705-b81e-ea6a5fe60646",
+      "name": "Trà Nho",
+      "description": "Trà thanh nhẹ kết hợp hương nho ngọt dịu.",
+      "basePrice": "35000",
+      "imageUrl": "/images/products/tra-nho.jpg",
+      "isAvailable": true,
+      "categoryId": "3a3f711e-501d-4d0d-ae9c-f2e792f08f83"
+    },
+    {
+      "id": "1df9e363-943e-4891-8c6f-8577ab06c54c",
+      "name": "Trà Sữa Dâu",
+      "description": "Trà sữa béo mịn kết hợp hương dâu ngọt dịu.",
+      "basePrice": "38000",
+      "imageUrl": "/images/products/tra-sua-dau.jpg",
+      "isAvailable": true,
+      "categoryId": "b1ccf399-a9fc-4a09-ac5e-2f78d8ce7f5d"
+    },
+    {
+      "id": "0f695c61-d927-4478-a5cc-5a3abdb89684",
+      "name": "Trà Sữa Hoa Đậu Biếc",
+      "description": "Hoa đậu biếc kết hợp trà và sữa, vị thơm nhẹ.",
+      "basePrice": "38000",
+      "imageUrl": "/images/products/tra-sua-hoa-dau-biet.jpg",
+      "isAvailable": true,
+      "categoryId": "b1ccf399-a9fc-4a09-ac5e-2f78d8ce7f5d"
+    },
+    {
+      "id": "c0700cdc-d9f0-4c31-bd33-6c86f9d09012",
+      "name": "Trà Sữa Socola",
+      "description": "Trà sữa hòa cùng socola đậm vị, ngọt béo vừa phải.",
+      "basePrice": "39000",
+      "imageUrl": "/images/products/tra-sua-socola.jpg",
+      "isAvailable": true,
+      "categoryId": "b1ccf399-a9fc-4a09-ac5e-2f78d8ce7f5d"
+    },
+    {
+      "id": "5314b922-ccf9-44f4-a5c4-ac8f3077b781",
+      "name": "Trà Sữa Truyền Thống",
+      "description": "Vị trà thơm hòa cùng sữa béo mịn, ngọt dịu.",
+      "basePrice": "32000",
+      "imageUrl": "/images/products/tra-sua-truyen-thong.png",
+      "isAvailable": true,
+      "categoryId": "b1ccf399-a9fc-4a09-ac5e-2f78d8ce7f5d"
+    },
+    {
+      "id": "2c98a01e-2922-4e55-bdf2-9bf04af820de",
+      "name": "Trà Sữa Ô Long Nướng",
+      "description": "Trà Ô long được sao nướng đậm hương thơm khói kết hợp sữa béo ngậy chuẩn vị Đài Loan.",
+      "basePrice": "38000",
+      "imageUrl": "/images/products/tra-sua-olong-nuong.jpg",
+      "isAvailable": true,
+      "categoryId": "b1ccf399-a9fc-4a09-ac5e-2f78d8ce7f5d"
+    },
+    {
+      "id": "dd50cdd0-c0a4-46f6-b390-2ee2887420d5",
+      "name": "Trà Thanh Long",
+      "description": "Trà trái cây với thanh long tươi mát, ngọt thanh.",
+      "basePrice": "35000",
+      "imageUrl": "/images/products/tra-thanh-long.jpg",
+      "isAvailable": true,
+      "categoryId": "3a3f711e-501d-4d0d-ae9c-f2e792f08f83"
+    },
+    {
+      "id": "979fc87d-a6fc-4c61-b655-8955c89efd38",
+      "name": "Trà Vải Hoa Hồng",
+      "description": "Nước cốt trà đen thanh mát kết hợp quả vải ngâm ngọt mọng và hương hoa hồng quyến rũ.",
+      "basePrice": "36000",
+      "imageUrl": "/images/products/tra-vai-hoa-hong.jpg",
+      "isAvailable": true,
+      "categoryId": "3a3f711e-501d-4d0d-ae9c-f2e792f08f83"
+    },
+    {
+      "id": "524bd9ed-9849-427a-ab4e-492ccc4abcc3",
+      "name": "Trà Đào Cam Sả",
+      "description": "Vị trà thơm nồng kết hợp hương cam tươi chua ngọt, miếng đào giòn rụm và sả thơm thư giãn.",
+      "basePrice": "35000",
+      "imageUrl": "/images/products/tra-dao-cam-xa.jpg",
+      "isAvailable": true,
+      "categoryId": "3a3f711e-501d-4d0d-ae9c-f2e792f08f83"
+    },
+    {
+      "id": "82b234d8-2d76-4a3f-8bad-fbee6ef340df",
+      "name": "Yaourt Đá Xay",
+      "description": "Sữa chua đá xay chua dịu, mềm mịn và tươi mát.",
+      "basePrice": "39000",
+      "imageUrl": "/images/products/yaourt-da-xay.jpg",
+      "isAvailable": true,
+      "categoryId": "d39adeca-a43c-4abe-b145-a3e321e51ae9"
+    },
+    {
+      "id": "64b9cd85-8beb-417e-bba7-1a2ba6aca049",
+      "name": "Đá Xay Oreo",
+      "description": "Bánh Oreo xay cùng sữa và đá, mát lạnh, béo thơm.",
+      "basePrice": "45000",
+      "imageUrl": "/images/products/da-xay-oreo.jpg",
+      "isAvailable": true,
+      "categoryId": "d39adeca-a43c-4abe-b145-a3e321e51ae9"
+    }
+  ],
+  "sizes": [
+    {
+      "id": "9825aa5c-a271-4eee-a630-12dbefc5f068",
+      "productId": "16ba3e19-5008-4ec0-8550-8aa0df530696",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "5e09a6bc-a9b9-49b4-8a80-aebb28e57ca0",
+      "productId": "d1bb279c-8b7a-4740-baa3-61b2ea33accf",
+      "name": "Size L",
+      "extraPrice": "10000",
+      "isAvailable": true
+    },
+    {
+      "id": "9802c8a6-26d7-4810-8bcd-b72d7c883a53",
+      "productId": "863778e0-5704-43e3-89b0-09c2d8b3e74c",
+      "name": "Size L",
+      "extraPrice": "10000",
+      "isAvailable": true
+    },
+    {
+      "id": "17528e7a-daa6-4017-8a1a-2860eb00e04f",
+      "productId": "e72775d9-ce5b-45f2-a668-f72cf1a102b4",
+      "name": "Size L",
+      "extraPrice": "8000",
+      "isAvailable": true
+    },
+    {
+      "id": "ee7cd6fd-1b89-4a2c-b028-cef88a05c5af",
+      "productId": "524bd9ed-9849-427a-ab4e-492ccc4abcc3",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "0b4a34df-c382-4238-84cb-5dbdd93ed6fb",
+      "productId": "4252649b-649f-44d3-b36b-81b208b995cf",
+      "name": "Size L",
+      "extraPrice": "8000",
+      "isAvailable": true
+    },
+    {
+      "id": "c8ecfdcb-4daf-4d61-8d59-63eb2e811237",
+      "productId": "979fc87d-a6fc-4c61-b655-8955c89efd38",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "5d74f056-dc62-424d-991e-6c29db398c47",
+      "productId": "156fa250-e0f8-4ba2-9ac6-bfa88ba6a5ac",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "b6f93345-aa80-4162-bd97-b6220a0217bc",
+      "productId": "25c5c291-aadf-4a47-a02a-da54a8876703",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "fb893595-3227-49a1-be74-8371fe0936df",
+      "productId": "b6ed8c64-ed80-40b5-83fe-6711953fd3bc",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "c186103b-c66b-42a0-955d-9cc1cad754d2",
+      "productId": "48625efe-c3f0-4c0e-ac81-5e65f12b6040",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "74eb3709-f466-414b-8a2d-77fe66a83bbb",
+      "productId": "94d8ab9a-8021-4285-beb3-3b52bf598ecf",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "13b13951-2bae-42cc-a2c4-47a176c2bcd0",
+      "productId": "cc988aba-e6aa-4731-858f-78414c464794",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "71111930-584c-4c6e-8066-016e98d328ff",
+      "productId": "64b9cd85-8beb-417e-bba7-1a2ba6aca049",
+      "name": "Size L",
+      "extraPrice": "8000",
+      "isAvailable": true
+    },
+    {
+      "id": "f2909b6a-0f5a-4177-8022-125bdbc0bfff",
+      "productId": "82b234d8-2d76-4a3f-8bad-fbee6ef340df",
+      "name": "Size L",
+      "extraPrice": "8000",
+      "isAvailable": true
+    },
+    {
+      "id": "0823a3b5-de39-4aea-b7be-7e5348a5e531",
+      "productId": "5283c835-c90c-4b72-b2e3-258433d2357a",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "b93493c0-5a1e-4646-98b6-0d45399e9eb5",
+      "productId": "d2c79aa4-4285-4705-b81e-ea6a5fe60646",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "7972b28c-9221-4652-af8c-98c1b514a08d",
+      "productId": "dd50cdd0-c0a4-46f6-b390-2ee2887420d5",
+      "name": "Size L",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "3e5d5d28-f6ac-4f87-807d-4960f6d260eb",
+      "productId": "1df9e363-943e-4891-8c6f-8577ab06c54c",
+      "name": "Size L",
+      "extraPrice": "7000",
+      "isAvailable": true
+    },
+    {
+      "id": "42fda11b-ae80-4bfc-bb9b-0265cb9a7e45",
+      "productId": "0f695c61-d927-4478-a5cc-5a3abdb89684",
+      "name": "Size L",
+      "extraPrice": "7000",
+      "isAvailable": true
+    },
+    {
+      "id": "a38c767b-3268-4187-b9c5-f1c3c3350d55",
+      "productId": "c0700cdc-d9f0-4c31-bd33-6c86f9d09012",
+      "name": "Size L",
+      "extraPrice": "7000",
+      "isAvailable": true
+    },
+    {
+      "id": "29c00ba9-eace-417c-b356-6934e0175f7a",
+      "productId": "5314b922-ccf9-44f4-a5c4-ac8f3077b781",
+      "name": "Size L",
+      "extraPrice": "7000",
+      "isAvailable": true
+    },
+    {
+      "id": "5b541d56-125b-4e2e-a156-2aa596c012ed",
+      "productId": "2c98a01e-2922-4e55-bdf2-9bf04af820de",
+      "name": "Size L",
+      "extraPrice": "7000",
+      "isAvailable": true
+    },
+    {
+      "id": "30fdd17b-b5fe-4e2e-9d13-9c7ca6c5cead",
+      "productId": "16ba3e19-5008-4ec0-8550-8aa0df530696",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "0e528ca9-69b4-441b-b1a6-b083451af21b",
+      "productId": "5314b922-ccf9-44f4-a5c4-ac8f3077b781",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "edb0aaa9-a98e-4216-a008-a0c24192cc2c",
+      "productId": "94d8ab9a-8021-4285-beb3-3b52bf598ecf",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "668f01a5-b640-445b-9d73-01f9ab965db9",
+      "productId": "dd50cdd0-c0a4-46f6-b390-2ee2887420d5",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "f5780fc1-3270-4da6-a778-34fda48e3e10",
+      "productId": "0f695c61-d927-4478-a5cc-5a3abdb89684",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "5d227ab0-594e-4387-a9ff-f807885d20c4",
+      "productId": "b6ed8c64-ed80-40b5-83fe-6711953fd3bc",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "0be9d8a4-e4ca-4df0-be13-f622e7f0a6ce",
+      "productId": "d2c79aa4-4285-4705-b81e-ea6a5fe60646",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "199909fb-539b-4eae-9452-ab24b1f7a0fd",
+      "productId": "48625efe-c3f0-4c0e-ac81-5e65f12b6040",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "26d35083-d0cb-410f-97ef-bd410800cbee",
+      "productId": "d1bb279c-8b7a-4740-baa3-61b2ea33accf",
+      "name": "Size M",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "974dfb48-9981-4613-aba3-348049cb56d1",
+      "productId": "cc988aba-e6aa-4731-858f-78414c464794",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "f2102c69-d1e1-4a8d-907c-622227002947",
+      "productId": "863778e0-5704-43e3-89b0-09c2d8b3e74c",
+      "name": "Size M",
+      "extraPrice": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "ce60b288-f5b5-4856-bc45-2b37b0f4cc78",
+      "productId": "c0700cdc-d9f0-4c31-bd33-6c86f9d09012",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "f9e5a031-bcc0-4489-a994-ec6c9105cf08",
+      "productId": "e72775d9-ce5b-45f2-a668-f72cf1a102b4",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "2dc61c00-1051-4674-a4b7-1727c79bcfd8",
+      "productId": "64b9cd85-8beb-417e-bba7-1a2ba6aca049",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "5e59912c-8c95-4641-9039-8d8614de5b96",
+      "productId": "524bd9ed-9849-427a-ab4e-492ccc4abcc3",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "694b9606-8a0e-4fda-afde-1152a3d3dcef",
+      "productId": "1df9e363-943e-4891-8c6f-8577ab06c54c",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "993b65a8-88b4-4caf-bb3c-c50433c7ebdb",
+      "productId": "2c98a01e-2922-4e55-bdf2-9bf04af820de",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "dda8ffd1-2a64-49c9-9997-2650412041ae",
+      "productId": "4252649b-649f-44d3-b36b-81b208b995cf",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "9e1b3100-3904-42e8-a343-6fcf1b996bf0",
+      "productId": "82b234d8-2d76-4a3f-8bad-fbee6ef340df",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "5fbd3ada-2625-4ed1-8603-6811969744fc",
+      "productId": "979fc87d-a6fc-4c61-b655-8955c89efd38",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "4990efa3-ae00-468b-aea6-89003cf2008e",
+      "productId": "156fa250-e0f8-4ba2-9ac6-bfa88ba6a5ac",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "61a0c0c3-dd14-4c86-b894-641065797369",
+      "productId": "5283c835-c90c-4b72-b2e3-258433d2357a",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "444322eb-9dde-4d47-ab07-5f2c46d2ad4a",
+      "productId": "25c5c291-aadf-4a47-a02a-da54a8876703",
+      "name": "Size M",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "fb4a4437-141a-4d9a-b4c4-2f5fdf51e4f3",
+      "productId": "d1bb279c-8b7a-4740-baa3-61b2ea33accf",
+      "name": "Size S",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "21c0bc2c-174f-4d0c-8ac0-4a56f0f9e6ed",
+      "productId": "863778e0-5704-43e3-89b0-09c2d8b3e74c",
+      "name": "Size S",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "c5dc892e-dea9-40a6-9836-bba250060892",
+      "productId": "989c485e-2b10-4734-a188-df64fdef969f",
+      "name": "Tiêu chuẩn",
+      "extraPrice": "0",
+      "isAvailable": true
+    },
+    {
+      "id": "f82df1af-b53b-4357-9fc6-ba4375267164",
+      "productId": "ebad74c4-5246-4f80-ba07-25a297a507fb",
+      "name": "Tiêu chuẩn",
+      "extraPrice": "0",
+      "isAvailable": true
+    }
+  ],
+  "toppings": [
+    {
+      "id": "ac6d7ec1-73d9-40e8-b250-18bcedc2918f",
+      "name": "Kem cheese Macchiato",
+      "price": "10000",
+      "isAvailable": true
+    },
+    {
+      "id": "851e7a0a-458d-493a-918a-baf546811c63",
+      "name": "Pudding trứng",
+      "price": "8000",
+      "isAvailable": true
+    },
+    {
+      "id": "e8ce057a-7113-4f21-8b7e-1f3eea839d42",
+      "name": "Thạch nha đam",
+      "price": "7000",
+      "isAvailable": true
+    },
+    {
+      "id": "edf7dd1f-cdf5-487a-b8b0-5335ce8e0166",
+      "name": "Trân châu trắng",
+      "price": "6000",
+      "isAvailable": true
+    },
+    {
+      "id": "70f5d956-52f8-4e55-9037-1b8872f16e4b",
+      "name": "Trân châu đen",
+      "price": "5000",
+      "isAvailable": true
+    }
+  ]
+}

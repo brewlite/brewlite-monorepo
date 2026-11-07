@@ -1,0 +1,35 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { InventoryEditor } from "../components/product/inventory-editor";
+const { send } = vi.hoisted(() => ({ send: vi.fn() }));
+vi.mock("../services/store.service", () => ({ sendStore: send }));
+vi.mock("../services/auth.service", () => ({ authError: () => "Tồn kho đã thay đổi. Vui lòng tải lại." }));
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+const row = { id: "sku", name: "M", onHand: null, reserved: 0, version: 4 };
+it("leaves stock blank, previews the exact change, then saves with version and reports success", async () => {
+  send.mockResolvedValue({}); const reload = vi.fn();
+  render(<InventoryEditor row={row} productName="Latte" onSaved={reload} />);
+  expect((screen.getByLabelText("Tồn thực tế M") as HTMLInputElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("Tồn thực tế M"), { target: { value: "8" } });
+  fireEvent.click(screen.getByText("Lưu tồn"));
+  expect(send).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog", { name: "Xác nhận cập nhật tồn kho" })).toBeDefined();
+  fireEvent.click(screen.getByText("Xác nhận lưu"));
+  await screen.findByText("Lưu tồn kho thành công.");
+  expect(send).toHaveBeenCalledWith("/admin/sizes/sku/inventory", { onHand: 8, expectedVersion: 4 }, "patch");
+  expect(reload).toHaveBeenCalledTimes(1);
+});
+it("requires Refresh after an uncertain save or version conflict, without automatic retry", async () => {
+  send.mockRejectedValue(new Error("conflict")); const reload = vi.fn();
+  render(<InventoryEditor row={row} productName="Latte" onSaved={reload} />);
+  fireEvent.change(screen.getByLabelText("Tồn thực tế M"), { target: { value: "3" } });
+  fireEvent.click(screen.getByText("Lưu tồn")); fireEvent.click(screen.getByText("Xác nhận lưu"));
+  await screen.findByRole("alert");
+  expect(screen.getByText("Lưu tồn").hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByText("Refresh tồn kho"));
+  await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+  expect(send).toHaveBeenCalledTimes(1);
+  expect((screen.getByLabelText("Tồn thực tế M") as HTMLInputElement).value).toBe("");
+});

@@ -1,177 +1,87 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import "./login-form.css";
+import { validPassword } from '../../lib/password-policy';
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { authError, login, register, resendOtp, verifyEmail, type AuthUser } from "../../services/auth.service";
+import { setAuthUser } from "../../lib/auth-store";
+import "./login-form.css";
 
-function EyeIcon({ hidden }: { hidden: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z" />
-      <circle cx="12" cy="12" r="3" />
-      {hidden && <path d="M3 3 21 21" />}
-    </svg>
-  );
-}
-
-function Brand({ onDark = false }: { onDark?: boolean }) {
-  return (
-    <div className="flex items-center justify-center gap-3 lg:justify-start">
-      <div className={`flex h-14 w-14 items-center justify-center rounded-full ${onDark ? "bg-[#8D6549]" : "bg-[#EFE5D8]"}`}>
-        <span aria-hidden="true" className="text-3xl">☕</span>
-      </div>
-      <span className={`text-3xl font-bold tracking-tight ${onDark ? "text-white" : "text-[#67432D]"}`}>
-        BrewLite
-      </span>
-    </div>
-  );
-}
-
-export default function LoginForm() {
-  const [phone, setPhone] = useState("");
+type Mode = "login" | "register" | "verify";
+export default function LoginForm({ onClose, initialMode = "login", onSuccess }: { onClose?: () => void; initialMode?: "login" | "register"; onSuccess?: (user: AuthUser) => void } = {}) {
+  const router = useRouter();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!onClose) return;
+    const dialog = dialogRef.current;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog?.showModal();
+    return () => { dialog?.close(); document.body.style.overflow = previous; };
+  }, [onClose]);
+  const [mode, setMode] = useState<Mode>(initialMode);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState("");
+  const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  function switchMode(next: Mode) { setMode(next); setPassword(""); setCode(""); setMessage(""); setVisible(false); }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return;
     setMessage("");
-
-    if (!/^0\d{9}$/.test(phone.trim())) {
-      setMessage("Vui lòng nhập số điện thoại Việt Nam gồm 10 chữ số, bắt đầu bằng 0.");
-      return;
+    const address = email.trim().toLowerCase();
+    if (mode === "register" && (!validPassword(password))) {
+      setMessage("Mật khẩu cần ít nhất 15 ký tự và tối đa 72 byte UTF-8."); return;
     }
-    if (!password) {
-      setMessage("Vui lòng nhập mật khẩu.");
-      return;
-    }
-
-    // TODO: Kết nối POST /auth/login sau khi Backend thống nhất API.
-    // Không lưu mật khẩu/token hoặc thông báo đăng nhập thành công giả.
-    setMessage("Giao diện đã sẵn sàng. Chức năng đăng nhập chưa kết nối máy chủ.");
+    setPending(true);
+    try {
+      if (mode === "register") {
+        const result = await register(fullName.trim(), address, password);
+        setPassword(""); setMode("verify"); setMessage(result.message);
+      } else if (mode === "verify") {
+        const result = await verifyEmail(address, code);
+        setMode("login"); setCode(""); setMessage(result.message);
+      } else {
+        const user = await login(address, password);
+        setPassword(""); setAuthUser(user);
+        if (onSuccess) onSuccess(user);
+        else if (onClose) onClose();
+        else router.push("/");
+      }
+    } catch (error) { setMessage(authError(error)); }
+    finally { setPending(false); }
   }
-
-  return (
-    <main className="min-h-screen bg-[#F8F5F0] text-[#32251D] lg:grid lg:grid-cols-[45%_55%]">
-      <aside className="hidden min-h-screen flex-col justify-center bg-[#67432D] px-[10%] text-white lg:flex">
-        <div className="max-w-lg">
-          <Brand onDark />
-          <h1 className="mt-16 text-[clamp(1.7rem,3vw,3rem)] font-bold leading-[1.35] tracking-tight">
-            <span className="block whitespace-nowrap">Một ly cà phê,</span>
-            <span className="block whitespace-nowrap">một khoảnh khắc</span>
-            <span className="block whitespace-nowrap">thư giãn.</span>
-          </h1>
-          <p className="mt-7 text-lg leading-8 text-[#E8D7C7]">
-          Chọn món yêu thích của bạn và tận hưởng trải nghiệm đặt{" "}
-          <span className="whitespace-nowrap">cà phê</span> thật đơn giản.
-          </p>
-          <div aria-hidden="true" className="mt-20 space-y-3">
-            <div className="h-3 w-72 max-w-full rounded-full bg-[#A87D5E]" />
-            <div className="h-3 w-52 max-w-full rounded-full bg-[#A87D5E]" />
-          </div>
-        </div>
-      </aside>
-
-      <section className="flex min-h-screen flex-col items-center justify-center px-4 py-10 sm:px-8">
-        <div className="mb-12 lg:hidden"><Brand /></div>
-
-        <div className="w-full max-w-[472px] rounded-3xl bg-white px-6 py-9 shadow-sm sm:px-10 sm:py-12">
-          <div className="mb-11 hidden lg:block"><Brand /></div>
-          <h2 className="text-center text-2xl font-bold sm:text-[27px]">Chào mừng trở lại!</h2>
-          <p className="mt-3 text-center text-sm text-[#87776B]">
-            Đăng nhập để tiếp tục trải nghiệm BrewLite
-          </p>
-
-          <form onSubmit={handleSubmit} noValidate className="mt-9 space-y-6">
-            <div>
-              <label htmlFor="login-phone" className="mb-2 block text-sm font-medium">Số điện thoại</label>
-              <input
-                id="login-phone"
-                name="phone"
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel"
-                value={phone}
-                onChange={(event) => { setPhone(event.target.value); setMessage(""); }}
-                placeholder="Nhập số điện thoại"
-                maxLength={15}
-                required
-                className="h-[52px] w-full rounded-xl border border-[#DED3C8] bg-white px-4 text-sm text-[#32251D] outline-none placeholder:text-[#A79C90] focus:border-[#67432D] focus:ring-2 focus:ring-[#67432D]/15"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="login-password" className="mb-2 block text-sm font-medium">Mật khẩu</label>
-              <div className="flex h-[52px] items-center rounded-xl border border-[#DED3C8] bg-white focus-within:border-[#67432D] focus-within:ring-2 focus-within:ring-[#67432D]/15">
-                <input
-                  id="login-password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => { setPassword(event.target.value); setMessage(""); }}
-                  placeholder="Nhập mật khẩu"
-                  required
-                  className="brewlite-password-input h-full min-w-0 flex-1 bg-transparent px-4 text-sm text-[#32251D] outline-none placeholder:text-[#A79C90]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                  aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                  aria-pressed={showPassword}
-                  className="flex h-full w-12 shrink-0 items-center justify-center text-[#67432D] hover:text-[#32251D] focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-[#67432D]"
-                >
-                  <EyeIcon hidden={showPassword} />
-                </button>
-              </div>
-            </div>
-
-            {message && (
-              <p role="status" aria-live="polite" className="rounded-lg bg-[#F8F5F0] px-3 py-2 text-sm text-[#67432D]">
-                {message}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              className="h-[52px] w-full rounded-xl bg-[#67432D] text-sm font-semibold text-white transition-colors hover:bg-[#543622] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#67432D]"
-            >
-              Đăng nhập
-            </button>
-          </form>
-
-          
-          <p className="mt-6 text-center text-sm text-[#87776B]">
-            Chưa có tài khoản?{" "}
-            <span className="font-semibold text-[#67432D]">
-              Đăng ký ngay
-            </span>
-          </p>
-
-          <div className="mt-6 text-center">
-            <Link
-              href="/"
-              className="text-sm font-medium text-[#67432D] hover:underline"
-            >
-              ← Về trang chủ
-            </Link>
-          </div>
-        </div>
-
-        <p className="mt-10 max-w-md text-center text-xs leading-5 text-[#87776B]">
-          Bạn có thể xem thực đơn mà không cần đăng nhập. Khi xác nhận đặt món, hệ thống sẽ yêu cầu đăng nhập nếu cần.
-        </p>
-      </section>
-    </main>
-  );
+  async function resend() {
+    if (pending || !email.trim()) return;
+    setPending(true);
+    try { setMessage((await resendOtp(email.trim().toLowerCase())).message); setMode("verify"); setPassword(""); }
+    catch (error) { setMessage(authError(error)); }
+    finally { setPending(false); }
+  }
+  const title = mode === "register" ? "ĐĂNG KÝ" : mode === "verify" ? "XÁC MINH EMAIL" : "ĐĂNG NHẬP";
+  const card = <section className="bl-auth-card" aria-labelledby="login-title">
+    {onClose ? <button type="button" className="bl-auth-close" onClick={onClose} aria-label="Đóng">×</button> : <Link href="/" className="bl-auth-close" aria-label="Về trang chủ">×</Link>}
+    <h1 id="login-title">{title}</h1>
+    <form onSubmit={(event) => { void handleSubmit(event); }} className="bl-auth-form" aria-busy={pending}>
+      {mode === "register" && <div className="bl-auth-field"><label htmlFor="auth-name">Họ và tên</label><input id="auth-name" autoComplete="name" required maxLength={100} value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Nhập họ và tên" /></div>}
+      <div className="bl-auth-field"><label htmlFor="auth-email">Email</label><input id="auth-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Nhập email của bạn" /></div>
+      {mode !== "verify" && <div className="bl-auth-field"><label htmlFor="auth-password">Mật khẩu</label><div className="bl-auth-password">
+        <input id="auth-password" className="brewlite-password-input" type={visible ? "text" : "password"} autoComplete={mode === "register" ? "new-password" : "current-password"} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Nhập mật khẩu của bạn" />
+        <button type="button" className="bl-auth-eye" onClick={() => setVisible((value) => !value)} aria-label={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-pressed={visible}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>{visible && <path d="m3 3 18 18"/>}</svg></button>
+      </div></div>}
+      {mode === "verify" && <div className="bl-auth-field"><label htmlFor="auth-code">Mã OTP trong email</label><input id="auth-code" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} placeholder="Nhập 6 chữ số" /></div>}
+      {message && <p className="bl-auth-message" role="status">{message}</p>}
+      <button type="submit" className="bl-auth-submit" disabled={pending}>{pending ? "ĐANG XỬ LÝ…" : title}</button>
+    </form>
+    {mode === "verify" ? <p className="bl-auth-register"><button type="button" className="bl-auth-switch" disabled={pending} onClick={() => { void resend(); }}>Gửi lại OTP</button> · <button type="button" className="bl-auth-switch" disabled={pending} onClick={() => switchMode("login")}>Đăng nhập</button></p> : <>
+      <p className="bl-auth-register">{mode === "login" ? "Chưa có tài khoản? " : "Đã có tài khoản? "}<button type="button" className="bl-auth-switch" disabled={pending} onClick={() => switchMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Đăng ký" : "Đăng nhập"}</button></p>
+      {mode === "login" && <p className="bl-auth-register"><button type="button" className="bl-auth-switch" disabled={pending} onClick={() => switchMode("verify")}>Xác minh email / Gửi lại OTP</button></p>}
+    </>}
+  </section>;
+  return onClose ? <dialog ref={dialogRef} className="bl-auth-dialog" aria-labelledby="login-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>{card}</dialog> : <main className="bl-auth-page">{card}</main>;
 }

@@ -9,7 +9,7 @@ Frontend để tích hợp 7 màn hình (Menu, Chi tiết món, Giỏ hàng, Che
 - **Base URL API:** `http://localhost:3001/api`
 - **Swagger UI (Xem & Test API trực tiếp trên web):** `http://localhost:3001/api/docs`
 - **Nhánh chứa code Backend mới nhất:** `main` (đã merge đầy đủ)
-- **Cơ chế xác thực (Auth):** Sử dụng **JWT Bearer Token** trong header:  
+- **Cơ chế xác thực (Auth):** Sử dụng **JWT Bearer Token** trong header:
   `Authorization: Bearer <access_token>`
 - **Các Role chuẩn trong hệ thống:** `CUSTOMER`, `STAFF`, `MANAGER` (Quản lý là `MANAGER` theo đúng Class Diagram).
 

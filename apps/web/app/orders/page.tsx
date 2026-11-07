@@ -1,12 +1,18 @@
-
 import type { Metadata } from "next";
-import OrderHistory from "../../components/orders/order-history";
-
+import { SiteFrame } from "../../components/layout/site-frame";
+import { OrdersView } from "../../components/orders/orders-view";
 export const metadata: Metadata = {
   title: "Lịch sử đơn hàng | BrewLite",
   description: "Xem và theo dõi lịch sử đơn hàng BrewLite",
 };
-
 export default function OrdersPage() {
-  return <OrderHistory />;
+  return (
+    <SiteFrame>
+      <section className="section">
+        <div className="container">
+          <OrdersView />
+        </div>
+      </section>
+    </SiteFrame>
+  );
 }
