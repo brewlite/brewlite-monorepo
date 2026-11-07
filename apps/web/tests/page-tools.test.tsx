@@ -16,11 +16,12 @@ afterEach(() => {
 });
 
 describe("back and top controls", () => {
-  it("returns to the previous in-site page and otherwise falls back to the menu", () => {
+  it("returns to the previous history entry without requiring a referrer, and falls back only when history is absent", () => {
+    const historyLength = vi.spyOn(window.history, 'length', 'get').mockReturnValue(2);
     const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
     const assign = vi.fn();
     Object.defineProperty(window, "location", { configurable: true, value: { origin: "http://localhost:3000", assign } });
-    Object.defineProperty(document, "referrer", { configurable: true, value: "http://localhost:3000/menu" });
+    Object.defineProperty(document, "referrer", { configurable: true, value: "" });
     render(<BackLink />);
     const link = screen.getByRole("link", { name: "Quay lại" });
     expect(link.getAttribute("href")).toBe("/menu");
@@ -29,6 +30,7 @@ describe("back and top controls", () => {
     expect(assign).not.toHaveBeenCalled();
 
     Object.defineProperty(document, "referrer", { configurable: true, value: "https://example.test/ads" });
+    historyLength.mockReturnValue(1);
     fireEvent.click(link);
     expect(assign).toHaveBeenCalledWith("/menu");
 

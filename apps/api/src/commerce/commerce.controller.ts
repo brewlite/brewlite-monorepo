@@ -113,7 +113,7 @@ export class OrdersController {
     @Body() b: unknown,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.service.pay(r.principal.user.id, id, b, key);
+    return this.service.pay(r.principal.user.id, id, b, key, r.ip);
   }
 }
 @Controller('payments')
@@ -121,6 +121,9 @@ export class OrdersController {
 @Roles('CUSTOMER')
 export class PaymentsController {
   constructor(private readonly service: CommerceService) {}
+  @Post(':id/reconcile') @HttpCode(200) reconcile(@Req() r: AuthRequest, @Param('id') id: string) {
+    return this.service.inquire(r.principal.user.id, id);
+  }
   @Get(':id') detail(@Req() r: AuthRequest, @Param('id') id: string) {
     return this.service.payment(r.principal.user.id, id);
   }

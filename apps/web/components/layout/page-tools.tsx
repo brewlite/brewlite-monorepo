@@ -10,18 +10,7 @@ export function BackLink() {
 
   function goBack(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
-    const referrer = document.referrer;
-    if (referrer) {
-      try {
-        const previous = new URL(referrer);
-        if (previous.origin === window.location.origin) {
-          window.history.back();
-          return;
-        }
-      } catch {
-        // Đường dẫn referrer không hợp lệ thì dùng trang nội bộ.
-      }
-    }
+    if (window.history.length > 1) { window.history.back(); return; }
     window.location.assign(fallback);
   }
 

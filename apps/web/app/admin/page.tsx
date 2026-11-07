@@ -5,6 +5,10 @@ import { getStore, sendStore, type Order } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
 import { formatPrice } from "../../lib/format-price";
 import { statusName } from "../../components/orders/orders-view";
+import { InventoryEditor, type InventoryRow } from "../../components/product/inventory-editor";
+import { normalizeSearch } from "../../lib/normalize-search";
+import { AdminOverview, type OverviewProduct, type OverviewSize } from '../../components/admin/admin-overview';
+import { CenteredDialog } from '../../components/ui/centered-dialog';
 type Row = Record<string, unknown> & { id: string };
 type Field = {
   key: string;
@@ -71,6 +75,7 @@ const names: Record<string, string> = {
   users: "Tài khoản",
   orders: "Giám sát đơn",
 };
+const primaryLabels: Record<string, string> = { products: 'Tên sản phẩm', categories: 'Tên danh mục', sizes: 'Tên Size', toppings: 'Tên topping', promotions: 'Mã giảm giá', users: 'Email' };
 function display(v: unknown) {
   return typeof v === "string" || typeof v === "number"
     ? String(v)
@@ -98,14 +103,32 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [productSearch, setProductSearch] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+  const [search, setSearch] = useState('');
+  const [formError, setFormError] = useState('');
+  const [overviewDetails, setOverviewDetails] = useState<{ products: OverviewProduct[]; sizes: OverviewSize[]; orders: Order[]; now: number }>({ products: [], sizes: [], orders: [], now: 0 });
+  function navigate(next: string) { setKind(next); setLoading(true); setEditing(false); setSearch(''); }
+  const filteredRows = rows.filter((row) => {
+    if (kind !== 'sizes') {
+      const category = lookups.categories?.find((item) => item.id === row.categoryId);
+      return normalizeSearch([row.name, row.fullName, row.email, row.code, row.description, category?.name].filter((value) => typeof value === 'string').join(' ')).includes(normalizeSearch(search));
+    }
+    const product = lookups.products?.find((item) => item.id === row.productId);
+    return (!productFilter || row.productId === productFilter) && normalizeSearch(display(product?.name)).includes(normalizeSearch(productSearch));
+  });
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         if (kind === "dashboard") {
-          const d =
-            await getStore<NonNullable<typeof dashboard>>("/admin/dashboard");
-          if (active) setDashboard(d);
+          const [d, products, sizes, recentOrders] = await Promise.all([
+            getStore<NonNullable<typeof dashboard>>("/admin/dashboard"),
+            getStore<OverviewProduct[]>('/admin/products'),
+            getStore<OverviewSize[]>('/admin/sizes'),
+            getStore<Order[]>('/admin/orders'),
+          ]);
+          if (active) { setDashboard(d); setOverviewDetails({ products, sizes, orders: recentOrders, now: Date.now() }); }
         } else if (kind === "orders") {
           const d = await getStore<Order[]>("/admin/orders");
           if (active) setOrders(d);
@@ -140,6 +163,7 @@ export default function AdminPage() {
     };
   }, [kind, attempt]);
   function edit(row: Row | null) {
+    setFormError('');
     setSelected(row);
     const next: Record<string, string | boolean> = {};
     for (const f of fields[kind] || []) {
@@ -160,6 +184,7 @@ export default function AdminPage() {
     event.preventDefault();
     setPending(true);
     setError("");
+    setFormError('');
     const body: Record<string, unknown> = { ...form };
     if (kind === "promotions") {
       body.usageLimit = Number(form.usageLimit);
@@ -175,7 +200,7 @@ export default function AdminPage() {
       setEditing(false);
       setAttempt((a) => a + 1);
     } catch (e) {
-      setError(authError(e));
+      setFormError(authError(e));
     } finally {
       setPending(false);
     }
@@ -183,23 +208,21 @@ export default function AdminPage() {
   return (
     <SiteFrame>
       <section className="section">
-        <div className="container store-workspace">
-          <h1>Quản trị BrewLite</h1>
-          <nav className="store-actions" aria-label="Quản trị">
+        <div className="container store-workspace admin-workspace">
+          <header className="admin-page-heading"><div><h1>Quản trị BrewLite</h1><p>{kind === 'dashboard' ? 'Chọn việc bạn muốn làm hôm nay.' : names[kind]}</p></div><button className="admin-refresh" disabled={loading} onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Làm mới</button></header>
+          {kind !== 'dashboard' && <nav className="store-actions admin-section-nav" aria-label="Quản trị">
             {Object.entries(names).map(([key, label]) => (
               <button
                 key={key}
                 aria-pressed={kind === key}
                 onClick={() => {
-                  setKind(key);
-                  setLoading(true);
-                  setEditing(false);
+                  navigate(key);
                 }}
               >
                 {label}
               </button>
             ))}
-          </nav>
+          </nav>}
           {loading && (
             <p role="status">Đang tải dữ liệu và kiểm tra quyền ADMIN…</p>
           )}
@@ -210,15 +233,7 @@ export default function AdminPage() {
             </p>
           )}
           {!loading && !error && kind === "dashboard" && dashboard && (
-            <article className="store-order">
-              <h2>Tổng quan</h2>
-              <p>{dashboard.label}</p>
-              <p>
-                {dashboard.paidOrders} đơn đã thanh toán ·{" "}
-                {formatPrice(dashboard.simulatedRevenue)}đ ·{" "}
-                {dashboard.products} sản phẩm
-              </p>
-            </article>
+            <AdminOverview data={dashboard} {...overviewDetails} onNavigate={navigate} />
           )}
           {!loading && !error && fields[kind] && (
             <>
@@ -226,12 +241,20 @@ export default function AdminPage() {
               {kind !== "users" && (
                 <button onClick={() => edit(null)}>Thêm mới</button>
               )}
+              {kind !== 'sizes' && <div className="admin-search-bar"><label htmlFor="admin-list-search">Tìm kiếm {names[kind].toLocaleLowerCase('vi-VN')}</label><div><input id="admin-list-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === 'users' ? 'Nhập tên hoặc email…' : kind === 'promotions' ? 'Nhập mã giảm giá…' : 'Nhập tên để tìm kiếm…'} />{search && <button type="button" onClick={() => setSearch('')}>Xóa tìm kiếm</button>}</div><p>{filteredRows.length} / {rows.length} kết quả</p></div>}
               {!rows.length && <p>Chưa có dữ liệu.</p>}
-              <div className="admin-table">
+              {rows.length > 0 && filteredRows.length === 0 && <p role="status">Không tìm thấy kết quả phù hợp.</p>}
+              {kind === "sizes" && <div className="store-actions inventory-filters">
+                <label>Tìm sản phẩm<input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} /></label>
+                <label>Lọc sản phẩm<select value={productFilter} onChange={(event) => setProductFilter(event.target.value)}><option value="">Tất cả sản phẩm</option>{lookups.products?.map((product) => <option key={product.id} value={product.id}>{display(product.name)}</option>)}</select></label>
+                <button onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Refresh tồn kho</button>
+                <p>{filteredRows.length} / {rows.length} Size</p>
+              </div>}
+              <div className={`admin-table${kind === "sizes" ? " inventory-table" : ""}`}>
                 <table>
                   <thead>
                     <tr>
-                      <th>Tên / Email</th>
+                      <th>{primaryLabels[kind]}</th>
                       {fields[kind]
                         .filter(
                           (f) =>
@@ -242,12 +265,12 @@ export default function AdminPage() {
                         .map((f) => (
                           <th key={f.key}>{f.label}</th>
                         ))}
-                      {kind === "sizes" && <><th>On hand</th><th>Reserved</th><th>Available</th><th>Điều chỉnh tồn</th></>}
+                      {kind === "sizes" && <><th>On hand</th><th>Reserved</th><th>Available</th><th>Trạng thái</th><th>Điều chỉnh tồn</th></>}
                       <th>Thao tác</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
+                    {filteredRows.map((r) => (
                       <tr key={r.id}>
                         <td>{display(r.name || r.email || r.code)}</td>
                         {fields[kind]
@@ -265,13 +288,14 @@ export default function AdminPage() {
                                       (v) => v.id === r[f.key],
                                     )?.name,
                                   )
-                                : display(r[f.key])}
+                                : ['basePrice', 'extraPrice', 'price', 'minOrderValue', 'maxDiscount'].includes(f.key) && r[f.key] != null ? `${formatPrice(String(r[f.key]))}đ` : f.key === 'isAvailable' ? (r[f.key] ? 'Đang bán' : 'Ngừng bán') : display(r[f.key])}
                             </td>
                           ))}
                         {kind === "sizes" && (
-                          <><td>{r.onHand == null ? "Chưa nhập tồn kho" : display(r.onHand)}</td><td>{display(r.reserved)}</td><td>{r.onHand == null ? "Chưa nhập tồn kho" : Number(r.onHand) - Number(r.reserved)}</td><td>
-                            <Inventory
-                              row={r}
+                          <><td>{r.onHand == null ? "Chưa nhập tồn kho" : display(r.onHand)}</td><td>{display(r.reserved)}</td><td>{r.onHand == null ? "Chưa nhập tồn kho" : Number(r.onHand) - Number(r.reserved)}</td><td>{r.sellingStatus === "STOPPED" ? "Ngừng bán" : r.onHand == null ? "Chưa nhập tồn" : Number(r.onHand) - Number(r.reserved) <= 0 ? "Hết hàng" : "Đang bán"}</td><td>
+                            <InventoryEditor
+                              row={r as InventoryRow}
+                              productName={display(lookups.products?.find((product) => product.id === r.productId)?.name)}
                               onSaved={() => setAttempt((a) => a + 1)}
                             />
                           </td></>
@@ -292,7 +316,9 @@ export default function AdminPage() {
             </>
           )}
           {editing && (
+            <CenteredDialog label={`${selected ? 'Sửa' : 'Thêm'} ${names[kind].toLocaleLowerCase('vi-VN')}`} className="admin-edit-dialog" onClose={() => { if (!pending) setEditing(false); }}>
             <form className="admin-form" onSubmit={save}>
+              <button type="button" className="admin-edit-close" aria-label="Đóng form" disabled={pending} onClick={() => setEditing(false)}>×</button>
               <h2>
                 {selected ? "Cập nhật" : "Thêm"} {names[kind]}
               </h2>
@@ -354,13 +380,15 @@ export default function AdminPage() {
                   )}
                 </label>
               ))}
+              {formError && <p role="alert">{formError}</p>}
               <div className="store-actions">
                 <button disabled={pending}>Lưu</button>
-                <button type="button" onClick={() => setEditing(false)}>
+                <button type="button" disabled={pending} onClick={() => setEditing(false)}>
                   Hủy
                 </button>
               </div>
             </form>
+            </CenteredDialog>
           )}
           {!loading && !error && kind === "orders" && (
             <>
@@ -394,49 +422,5 @@ export default function AdminPage() {
         </div>
       </section>
     </SiteFrame>
-  );
-}
-function Inventory({ row, onSaved }: { row: Row; onSaved: () => void }) {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
-  return (
-    <form
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setPending(true);
-        if (!value.trim() || !Number.isInteger(Number(value)) || Number(value) < Number(row.reserved)) { setError("Tồn phải là số nguyên không âm và không nhỏ hơn Reserved."); setPending(false); return; }
-        try {
-          await sendStore(
-            `/admin/sizes/${row.id}/inventory`,
-            { onHand: Number(value), expectedVersion: row.version },
-            "patch",
-          );
-          setError("");
-          setValue("");
-          onSaved();
-        } catch (e) {
-          setError(authError(e));
-        } finally {
-          setPending(false);
-        }
-      }}
-    >
-      <label>
-        Đặt tồn thực tế
-        <input
-          type="number"
-          aria-label={`Tồn thực tế ${display(row.name)}`}
-          min={Number(row.reserved)}
-          step="1"
-          required
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </label>
-      <button disabled={pending}>Lưu tồn</button>
-      {error && <p role="alert">{error}</p>}
-      {error && <button type="button" onClick={onSaved}>Tải lại tồn kho trước khi lưu tiếp</button>}
-    </form>
   );
 }

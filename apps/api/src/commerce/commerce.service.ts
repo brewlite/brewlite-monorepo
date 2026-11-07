@@ -1,4 +1,5 @@
 import { InventoryService } from '../inventory/inventory.service';
+import { VNPayService, type VNParams } from './vnpay.service';
 import {
   configurationKey,
   normalizeCartNote,
@@ -97,9 +98,11 @@ function json(value: unknown): Prisma.InputJsonValue {
 @Injectable()
 export class CommerceService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
+  private readonly inquiries = new Map<string, { at: number; attempts: number }>();
   constructor(
     private readonly db: PrismaService,
     private readonly inventory: InventoryService,
+    private readonly vnpay: VNPayService,
   ) {}
   onModuleInit() {
     this.timer = setInterval(() => {
@@ -123,7 +126,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
-          ['P2034', 'P2002'].includes(error.code) &&
+          (['P2034', 'P2002'].includes(error.code) || (error.code === 'P2010' && ['40001', '40P01'].includes(String(error.meta?.code)))) &&
           attempt < 4
         )
           continue;
@@ -607,11 +610,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
         for (const [id, qty] of [...p.amounts].sort(([a], [b]) =>
           a.localeCompare(b),
         )) {
-          const changed = await tx.size.updateMany({
-            where: { id, onHand: { not: null } },
-            data: { reserved: { increment: qty } },
-          });
-          if (!changed.count) fail('OUT_OF_STOCK', 'Món vừa hết hàng.', 409);
+          await this.inventory.reserve(tx, id, qty);
         }
         if (p.promotionId)
           await tx.promotion.update({
@@ -727,10 +726,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     if (!changed.count) return o;
     for (const i of o.items)
       if (i.sizeId)
-        await tx.size.update({
-          where: { id: i.sizeId },
-          data: { reserved: { decrement: i.quantity } },
-        });
+        await this.inventory.release(tx, i.sizeId, i.quantity);
     if (o.userId && o.pointsUsed)
       await tx.user.update({
         where: { id: o.userId },
@@ -834,10 +830,11 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       },
     );
   }
-  async pay(userId: string, id: string, body: unknown, key?: string) {
+  async pay(userId: string, id: string, body: unknown, key?: string, clientIp = '127.0.0.1') {
     const method = text(record(body).method, 20);
-    if (!['WALLET', 'CARD'].includes(method))
-      fail('INVALID_METHOD', 'Chỉ ví/thẻ mô phỏng.');
+    if (!['WALLET', 'CARD', 'VNPAY'].includes(method)) fail('INVALID_METHOD', 'Phương thức thanh toán không hợp lệ.');
+    if (method === 'VNPAY') this.vnpay.config();
+    else if (process.env.NODE_ENV !== 'test' && process.env.ENABLE_MOCK_PAYMENTS !== 'true') fail('MOCK_DISABLED', 'Thanh toán mô phỏng chưa được bật cho môi trường này.');
     return this.idem(
       userId,
       'payment.create',
@@ -861,64 +858,79 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
             'Không thể tạo lần thanh toán mới.',
             409,
           );
+        if (!o.finalTotal.isInteger() || o.finalTotal.lte(0)) fail('INVALID_PAYMENT_AMOUNT', 'VNPay/thanh toán yêu cầu số tiền nguyên dương.');
         return tx.payment.create({
           data: {
             orderId: id,
-            method: method as 'WALLET' | 'CARD',
+            method: method === 'VNPAY' ? 'CARD' : method as 'WALLET' | 'CARD',
             amount: o.finalTotal,
             attemptNumber: o.payments.length + 1,
-            providerPaymentId: randomUUID(),
-            status: 'UNKNOWN',
+            providerPaymentId: method === 'VNPAY' ? `vnpay:${randomUUID().replace(/-/g, '')}` : randomUUID(),
+            status: method === 'VNPAY' ? 'PENDING' : 'UNKNOWN',
           },
         });
       },
     ).then(async (payment) => {
       const p = record(payment);
+      if (method === 'VNPAY') {
+        const fresh = await this.db.payment.findUniqueOrThrow({ where: { id: String(p.id) }, include: { order: true } });
+        if (fresh.status !== 'PENDING' && fresh.status !== 'UNKNOWN') return fresh;
+        if (!fresh.order.expiresAt || fresh.order.expiresAt.getTime() <= Date.now()) fail('PAYMENT_EXPIRED', 'Đã hết hạn thanh toán.', 409);
+        return { ...fresh, order: undefined, paymentUrl: this.vnpay.url(fresh.providerPaymentId!.slice(6), fresh.amount.toFixed(0), fresh.createdAt, fresh.order.expiresAt, clientIp) };
+      }
       return this.settle(String(p.id));
     });
   }
   async settle(paymentId: string) {
+    const payment = await this.db.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    // VNPay is NEVER settled by the mock adapter, GET polling, or its reconciliation sweep.
+    if (payment.providerPaymentId?.startsWith('vnpay:')) return payment;
     // Only this Backend adapter chooses outcomes; the browser cannot send SUCCESS/FAILED.
     const outcome = process.env.MOCK_PAYMENT_OUTCOME ?? 'SUCCESS';
     if (outcome === 'UNKNOWN')
       return this.db.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    return this.settleVerified(paymentId, outcome === 'FAILED' ? 'FAILED' : 'SUCCESS', `mock:${payment.providerPaymentId}:final`);
+  }
+  private async settleVerified(paymentId: string, status: PaymentStatus, eventId: string, transactionRef?: string, metadata?: Prisma.InputJsonValue) {
     return this.tx(async (tx) => {
       const p = await tx.payment.findUniqueOrThrow({
         where: { id: paymentId },
       });
-      if (p.status === 'SUCCESS' || p.status === 'FAILED') return p;
+      if (await tx.paymentEvent.findUnique({ where: { providerEventId: eventId } })) return p;
+      if (p.status === 'SUCCESS' || p.status === 'FAILED') {
+        if (p.status !== status) await tx.paymentEvent.create({ data: { paymentId, providerEventId: eventId, amount: p.amount, outcome: status, processingStatus: 'REQUIRES_REVIEW', metadata } });
+        return p;
+      }
       const o = await tx.order.findUniqueOrThrow({
         where: { id: p.orderId },
         include: { items: true, reservation: true },
       });
-      const status: PaymentStatus = outcome === 'FAILED' ? 'FAILED' : 'SUCCESS';
+      const transactionUsed = status === 'SUCCESS' && transactionRef ? await tx.payment.findFirst({ where: { transactionRef, status: 'SUCCESS', providerPaymentId: { startsWith: 'vnpay:' }, id: { not: p.id } } }) : null;
       if (
         status === 'SUCCESS' &&
-        (o.status !== 'PENDING_PAYMENT' ||
+        (transactionUsed || o.status !== 'PENDING_PAYMENT' ||
           o.reservation?.state !== 'HELD' ||
           !p.amount.equals(o.finalTotal))
       )
-        fail('RECONCILIATION_REQUIRED', 'Thanh toán cần đối soát.', 409);
+      {
+        await tx.paymentEvent.create({ data: { paymentId, providerEventId: eventId, amount: p.amount, outcome: status, processingStatus: 'REQUIRES_REVIEW', metadata } });
+        return tx.payment.update({ where: { id: p.id }, data: { status: 'UNKNOWN', failureReason: 'RECONCILIATION_REQUIRED' } });
+      }
       await tx.paymentEvent.create({
         data: {
           paymentId: p.id,
-          providerEventId: `mock:${p.providerPaymentId}:final`,
+          providerEventId: eventId,
           processingStatus: 'PROCESSED',
           processedAt: new Date(),
           amount: p.amount,
           outcome: status,
+          metadata,
         },
       });
       if (status === 'SUCCESS') {
         for (const i of o.items)
           if (i.sizeId)
-            await tx.size.update({
-              where: { id: i.sizeId },
-              data: {
-                onHand: { decrement: i.quantity },
-                reserved: { decrement: i.quantity },
-              },
-            });
+            await this.inventory.consume(tx, i.sizeId, i.quantity);
         if (o.userId) {
           const user = await tx.user.update({
             where: { id: o.userId },
@@ -943,7 +955,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
               userId: o.userId,
               orderId: o.id,
               type: 'PAYMENT_SUCCESS',
-              title: 'Thanh toán mô phỏng thành công',
+              title: p.providerPaymentId?.startsWith('vnpay:') ? 'Thanh toán VNPay Sandbox thành công' : 'Thanh toán mô phỏng thành công',
               content: o.orderCode,
               eventKey: `${o.id}:PAID`,
             },
@@ -980,12 +992,38 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
         where: { id: p.id },
         data: {
           status,
+          transactionRef,
+          resolvedAt: status === 'SUCCESS' || status === 'FAILED' ? new Date() : null,
           paidAt: status === 'SUCCESS' ? new Date() : null,
           failureReason:
-            status === 'FAILED' ? 'Cổng mô phỏng từ chối giao dịch.' : null,
+            status === 'FAILED' ? 'Cổng thanh toán từ chối giao dịch.' : null,
         },
       });
     });
+  }
+  async vnpayReturn(query: Record<string, unknown>) {
+    const params = this.vnpay.verify(query);
+    if (!params) return null;
+    const p = await this.db.payment.findUnique({ where: { providerPaymentId: `vnpay:${params.vnp_TxnRef}` } });
+    if (!p || !p.amount.times(100).equals(params.vnp_Amount)) return null;
+    // Browser Return is navigation only; IPN is the settlement authority.
+    return p.id;
+  }
+  async vnpayIpn(query: Record<string, unknown>) {
+    const reply = (RspCode: string, Message: string) => ({ RspCode, Message });
+    try {
+      const params = this.vnpay.verify(query);
+      if (!params) return reply('97', 'Invalid signature or merchant');
+      const p = await this.db.payment.findUnique({ where: { providerPaymentId: `vnpay:${params.vnp_TxnRef}` } });
+      if (!p) return reply('01', 'Payment not found');
+      if (!p.amount.times(100).equals(params.vnp_Amount)) return reply('04', 'Invalid amount');
+      const outcome = this.vnpay.outcome(params);
+      const metadata: VNParams = { responseCode: params.vnp_ResponseCode, transactionStatus: params.vnp_TransactionStatus, merchant: params.vnp_TmnCode };
+      const event = `vnpay:${params.vnp_TxnRef}:${params.vnp_TransactionNo ?? 'none'}:${params.vnp_ResponseCode}:${params.vnp_TransactionStatus}`;
+      const result = await this.settleVerified(p.id, outcome, event, params.vnp_TransactionNo || undefined, metadata);
+      if (result.failureReason === 'RECONCILIATION_REQUIRED' || ((p.status === 'SUCCESS' || p.status === 'FAILED') && p.status !== outcome)) return reply('99', 'Reconciliation required');
+      return reply(p.status === 'SUCCESS' || p.status === 'FAILED' ? '02' : '00', 'Confirmed');
+    } catch { return reply('99', 'Unable to confirm'); }
   }
   async payment(userId: string, id: string) {
     const p = await this.db.payment.findFirst({
@@ -994,12 +1032,30 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     if (!p) fail('NOT_FOUND', 'Không tìm thấy thanh toán.', 404);
     return p.status === 'UNKNOWN' ? this.settle(id) : p;
   }
+  async inquire(userId: string, id: string) {
+    const p = await this.db.payment.findFirst({ where: { id, ...(userId ? { order: { userId, isLegacy: false } } : { order: { isLegacy: false } }) } });
+    if (!p) fail('NOT_FOUND', 'Không tìm thấy thanh toán.', 404);
+    if (!p.providerPaymentId?.startsWith('vnpay:') || !['PENDING', 'UNKNOWN'].includes(p.status)) return p;
+    const previous = this.inquiries.get(id);
+    if (previous && (Date.now() - previous.at < 60000 || previous.attempts >= 10)) return p;
+    this.inquiries.set(id, { at: Date.now(), attempts: (previous?.attempts ?? 0) + 1 });
+    try {
+      const result = await this.vnpay.query(p.providerPaymentId.slice(6), p.createdAt, p.amount.toFixed(0));
+      if (result) return this.settleVerified(id, result.outcome, `vnpay:query:${result.params.vnp_ResponseId}`, result.params.vnp_TransactionNo, { source: 'querydr', transactionStatus: result.params.vnp_TransactionStatus });
+    } catch { /* Network/config/signature uncertainty must never become FAILED. */ }
+    await this.db.payment.updateMany({ where: { id, status: { in: ['PENDING', 'UNKNOWN'] } }, data: { status: 'UNKNOWN' } });
+    return this.db.payment.findUniqueOrThrow({ where: { id } });
+  }
   async reconcile() {
     const unknown = await this.db.payment.findMany({
       where: { status: 'UNKNOWN', order: { isLegacy: false } },
       take: 20,
     });
     for (const p of unknown) await this.settle(p.id);
+    if (process.env.VNPAY_RECONCILE_ENABLED === 'true') {
+      const pending = await this.db.payment.findMany({ where: { providerPaymentId: { startsWith: 'vnpay:' }, status: { in: ['PENDING', 'UNKNOWN'] }, createdAt: { lt: new Date(Date.now() - 60000) }, order: { isLegacy: false } }, take: 20 });
+      for (const p of pending) await this.inquire('', p.id);
+    }
     const expired = await this.db.orderReservation.findMany({
       where: {
         state: 'HELD',

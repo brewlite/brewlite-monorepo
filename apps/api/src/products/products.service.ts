@@ -45,11 +45,7 @@ export class ProductsService {
       },
     });
 
-    if (
-      !product ||
-      !product.isAvailable ||
-      (product.category && !product.category.isActive)
-    ) {
+    if (!product) {
       throw new NotFoundException(`Sản phẩm với ID ${id} không tồn tại.`);
     }
 

@@ -57,10 +57,11 @@ export class StoreAdminService {
           orderBy: { createdAt: 'desc' },
         });
       case 'sizes':
-        return this.db.size.findMany({
-          include: { product: { select: { name: true } } },
+        return (await this.db.size.findMany({
+          include: { product: { select: { name: true, isAvailable: true, category: { select: { isActive: true } } } } },
           orderBy: { name: 'asc' },
-        });
+        })).map((size) => ({ ...size, availableQuantity: size.onHand === null ? null : size.onHand - size.reserved,
+          sellingStatus: !size.isAvailable || !size.product.isAvailable || size.product.category?.isActive === false ? 'STOPPED' : size.onHand === null ? 'UNINITIALIZED' : size.onHand - size.reserved > 0 ? 'AVAILABLE' : 'OUT_OF_STOCK' }));
       case 'toppings':
         return this.db.topping.findMany({ orderBy: { name: 'asc' } });
       case 'promotions':

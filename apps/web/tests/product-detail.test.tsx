@@ -31,6 +31,21 @@ const detail = {
 };
 
 describe("product detail", () => {
+  it("keeps an uninitialized Size and topping selection visible, without silently choosing another Size", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:3001");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...detail, sizes: [{ ...detail.sizes[0], onHand: null, availableQuantity: null, inventoryStatus: "UNINITIALIZED" }, detail.sizes[1]] }) }));
+    render(<SiteFrame><ProductDetailView id={detail.id} /></SiteFrame>);
+    await screen.findByRole("heading", { level: 1, name: detail.name });
+    expect(screen.getByRole("button", { name: "Vui lòng chọn Size" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /M ·/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Trân châu/ }));
+    expect(screen.getByRole("button", { name: "Size chưa được nhập tồn kho" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: /M ·/ }).getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByRole("checkbox", { name: /Trân châu/ }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /L ·/ }));
+    expect(screen.getByRole("button", { name: "Thêm vào giỏ hàng" }).hasAttribute("disabled")).toBe(false);
+    expect((screen.getByRole("checkbox", { name: /Trân châu/ }) as HTMLInputElement).checked).toBe(true);
+  });
   it("shows the drink once and does not open or fill the cart", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:3001");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => detail }));

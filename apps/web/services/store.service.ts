@@ -17,7 +17,7 @@ export type Order = {
     lineTotal: string;
     toppings: { toppingName: string; price: string }[];
   }[];
-  payments: { id: string; status: string; method: string; amount: string }[];
+  payments: { id: string; status: string; method: string; amount: string; providerPaymentId?: string | null }[];
   history: { toStatus: string; createdAt: string }[];
 };
 export async function getStore<T>(path: string) {

@@ -1,4 +1,6 @@
 import { InventoryModule } from '../inventory/inventory.module';
+import { VNPayService } from './vnpay.service';
+import { VNPayController } from './vnpay.controller';
 import { AccountController } from './account.controller';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
@@ -15,12 +17,13 @@ import {
   imports: [AuthModule, InventoryModule],
   controllers: [
     AccountController,
+    VNPayController,
     ConfiguredCartController,
     OrdersController,
     PaymentsController,
     StaffOrdersController,
     StoreAdminController,
   ],
-  providers: [CommerceService, StoreAdminService],
+  providers: [CommerceService, StoreAdminService, VNPayService],
 })
 export class CommerceModule {}

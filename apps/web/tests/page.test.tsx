@@ -30,7 +30,7 @@ describe("menu", () => {
     render(<Home />);
     expect(await screen.findByRole("heading", { name: "Latte" })).toBeDefined();
     expect(screen.getByText(`${(39000).toLocaleString("vi-VN")}đ`)).toBeDefined();
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3001/api/products");
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3001/api/products", { cache: "no-store" });
     expect(screen.queryByText("Đang tải menu...")).toBeNull();
   });
 
@@ -40,7 +40,7 @@ describe("menu", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<Home />);
     await screen.findByText("Hiện chưa có thức uống nào.");
-    expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/api/products");
+    expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/api/products", { cache: "no-store" });
   });
 
   it("shows an empty state for an empty catalog", async () => {

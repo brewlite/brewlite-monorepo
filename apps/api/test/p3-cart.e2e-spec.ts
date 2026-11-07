@@ -117,6 +117,24 @@ import { PrismaService } from '../src/prisma/prisma.service';
     await post('/orders', { cartVersion: added.body.version, quoteFingerprint: 'old' }).expect(409);
     expect(await db.order.count()).toBe(0); expect(await db.orderReservation.count()).toBe(0);
   });
+  it('ADMIN initializes a NULL Size with CAS/audit; CUSTOMER can then add and quote without reserving stock', async () => {
+    const sku = await db.size.create({ data: { productId, name: 'Stage1 initial stock', extraPrice: '6000' } });
+    const choice = { ...item('Ít đá'), sizeId: sku.id, quantity: 2 };
+    expect((await post('/cart/items', choice).expect(409)).body.code).toBe('INVENTORY_UNINITIALIZED');
+    const adjust = (cookie: string, version = 0) => request(app.getHttpServer()).patch(`/api/admin/sizes/${sku.id}/inventory`).set('Cookie', cookie).set('Origin', 'http://localhost:3000').send({ onHand: 5, expectedVersion: version });
+    await adjust(customer).expect(403); await adjust(staff).expect(403);
+    await adjust(admin).expect(200); expect((await adjust(admin).expect(409)).body.code).toBe('INVENTORY_CHANGED');
+    const listed = await request(app.getHttpServer()).get('/api/admin/sizes').set('Cookie', admin).expect(200);
+    expect(listed.body.find((row: { id: string }) => row.id === sku.id)).toMatchObject({ onHand: 5, reserved: 0, availableQuantity: 5, sellingStatus: 'AVAILABLE', version: 1 });
+    const catalog = await request(app.getHttpServer()).get(`/api/products/${productId}`).expect(200);
+    expect(catalog.body.sizes.find((row: { id: string }) => row.id === sku.id)).toMatchObject({ availableQuantity: 5, inventoryStatus: 'AVAILABLE' });
+    await post('/cart/items', choice).expect(201);
+    expect((await get().expect(200)).body.items[0]).toMatchObject({ sizeId: sku.id, quantity: 2, note: 'Ít đá', requiresConfiguration: false });
+    const quote = await post('/cart/calculate', { items: [choice] }).expect(200);
+    expect(JSON.stringify(quote.body)).toContain('86000');
+    expect(await db.size.findUniqueOrThrow({ where: { id: sku.id } })).toMatchObject({ onHand: 5, reserved: 0 });
+    expect(await db.idempotencyRecord.count({ where: { operation: 'admin.inventory.change', requestHash: sku.id } })).toBe(1);
+  });
   (process.env.P3_BROWSER === '1' ? it : it.skip)('real Next UI guest merge/reload/edit/delete and ADMIN stock on desktop/mobile', async () => {
     await app.listen(0);
     const address = app.getHttpServer().address() as { port: number };

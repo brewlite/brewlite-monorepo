@@ -148,7 +148,7 @@ function HeaderSearch() {
     </form>
   );
 }
-export function Header({ cartCount = 0 }: { cartCount?: number }) {
+export function Header() {
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
 
@@ -175,7 +175,6 @@ export function Header({ cartCount = 0 }: { cartCount?: number }) {
                     onClick={() => setOpen(false)}
                   >
                     {link.label}
-                    {link.href === "/cart" && cartCount > 0 && <span className="cart-count" aria-label={`${cartCount} ly`}> ({cartCount})</span>}
                   </Link>
                 </li>
               ))}

@@ -5,6 +5,7 @@ import { getStore, sendStore, type Order } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
 import { formatPrice } from "../../lib/format-price";
 import { useAuthUser, refreshAuth } from "../../lib/auth-store";
+import { startVNPay } from '../../services/payment.service';
 export const statusName: Record<string, string> = {
   PENDING_PAYMENT: "Chờ thanh toán",
   PAID: "Đã thanh toán",
@@ -140,8 +141,9 @@ export function OrdersView({
               </p>
               {o.payments.map((p) => (
                 <p key={p.id}>
-                  Thanh toán mô phỏng {p.method}: {p.status} ·{" "}
+                  {p.providerPaymentId?.startsWith('vnpay:') ? 'VNPay Sandbox' : `Thanh toán mô phỏng ${p.method}`}: {p.status} ·{" "}
                   {formatPrice(p.amount)}đ
+                  {p.providerPaymentId?.startsWith('vnpay:') && <>{' '}<Link href={`/payments/result?paymentId=${p.id}`}>Kiểm tra kết quả</Link></>}
                 </p>
               ))}
               {!staff && o.status === "PENDING_PAYMENT" && (
@@ -151,10 +153,15 @@ export function OrdersView({
                     {o.expiresAt
                       ? new Date(o.expiresAt).toLocaleTimeString("vi-VN")
                       : "—"}
-                    . Đây là thanh toán mô phỏng, không thu tiền thật.
+                    . Chỉ dùng môi trường Sandbox, không thanh toán tiền thật.
                   </p>
                   <div className="store-actions">
-                    {["WALLET", "CARD"].map((method) => (
+                    <button disabled={pending || o.payments.length >= 3 || o.payments.some((p) => ['PENDING', 'UNKNOWN'].includes(p.status))} onClick={async () => {
+                      setPending(true); setError('');
+                      try { const result = await startVNPay(o.id); if (result.url) window.location.assign(result.url); else setAttempt((value) => value + 1); }
+                      catch (caught) { setError(authError(caught)); } finally { setPending(false); }
+                    }}>Thanh toán VNPay Sandbox</button>
+                    {(process.env.NEXT_PUBLIC_ENABLE_MOCK_PAYMENTS === 'true' ? ["WALLET", "CARD"] : []).map((method) => (
                       <button
                         key={method}
                         disabled={

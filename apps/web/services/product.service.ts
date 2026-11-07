@@ -67,7 +67,7 @@ function isTopping(value: unknown): boolean {
 }
 
 export async function getProducts(): Promise<Product[]> {
-  const response = await fetch(apiUrl("/products"));
+  const response = await fetch(apiUrl("/products"), { cache: "no-store" });
   if (!response.ok) {
     throw new Error("Unable to load products");
   }
@@ -85,7 +85,7 @@ function isProductDetail(value: unknown): value is ProductDetail {
 }
 
 export async function getProduct(id: string): Promise<ProductDetail> {
-  const response = await fetch(apiUrl(`/products/${encodeURIComponent(id)}`));
+  const response = await fetch(apiUrl(`/products/${encodeURIComponent(id)}`), { cache: "no-store" });
   if (response.status === 404) throw new ProductNotFoundError();
   if (!response.ok) throw new Error("Unable to load product");
   const data: unknown = await response.json();

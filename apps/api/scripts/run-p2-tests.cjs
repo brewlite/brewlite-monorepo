@@ -4,7 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 require('dotenv').config({ quiet: true });
 async function main() {
   const phase = process.argv[2] || 'p2';
-  if (!['p2', 'p3'].includes(phase)) throw new Error('Unknown test phase');
+  if (!['p2', 'p3', 'stage2'].includes(phase)) throw new Error('Unknown test phase');
   if (!process.env.DATABASE_URL)
     throw new Error('DATABASE_URL required; no fallback credentials.');
   const operating = new URL(process.env.DATABASE_URL);
@@ -51,12 +51,12 @@ async function main() {
     '--config',
     'test/jest-e2e.json',
     '--runInBand',
-    phase === 'p2' ? 'p2-inventory.e2e-spec' : 'p3-cart.e2e-spec',
+    phase === 'p2' ? 'p2-inventory.e2e-spec' : phase === 'p3' ? 'p3-cart.e2e-spec' : 'stage2-checkout.e2e-spec',
   ]);
 }
 main().catch(() => {
   console.error(
-    'Isolated integration setup/tests failed. Inspect the error above; use a dedicated brewlite_p2_test_* or brewlite_p3_test_* database. No reset or fallback to operating data.',
+    'Isolated integration setup/tests failed. Inspect the error above; use a dedicated brewlite_p2_test_*, brewlite_p3_test_* or brewlite_stage2_test_* database. No reset or fallback to operating data.',
   );
   process.exitCode = 1;
 });

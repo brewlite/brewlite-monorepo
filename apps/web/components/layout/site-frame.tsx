@@ -36,7 +36,7 @@ function SiteChrome({ children }: { children: ReactNode }) {
   return (
     <>
       <a className="skip-link" href="#main">Bỏ qua điều hướng</a>
-      <Header cartCount={count} />
+      <Header />
       <main id="main">
         <BackLink />
         {children}

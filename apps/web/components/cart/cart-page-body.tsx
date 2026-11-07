@@ -8,21 +8,19 @@ import { formatPrice } from "../../lib/format-price";
 import { MAX_LINE_QUANTITY, lineTotal } from "../../lib/cart-config";
 import { resolveProductImage } from "../../lib/safe-image";
 import { useCart } from "./cart-provider";
+import { EmptyCart } from "./empty-cart";
 
 export function CartPageBody() {
   const { lines, subtotal, count, setQuantity, remove, ready, busy, canCheckout, pendingGuest = [], retry } = useCart();
   const [loginOpen, setLoginOpen] = useState(false);
   return (
     <section className="cart-board">
-      <div className="container cart-layout">
+      <div className={`container cart-layout${ready !== false && lines.length === 0 ? " cart-layout-empty" : ""}`}>
         <div>
-          <h1>Giỏ hàng ({count} món)</h1>
+          <h1 className="visually-hidden">Giỏ hàng</h1>
           {pendingGuest.length > 0 && <div className="notice notice-warn" role="region" aria-label="Giỏ tạm chưa đồng bộ"><h2>Giỏ tạm chưa đồng bộ</h2><p>Các món này vẫn được giữ trên trình duyệt và chưa được tính vào giỏ PostgreSQL.</p><ul>{pendingGuest.map((line) => <li key={line.key}>{line.name} · {line.quantity} ly · {line.sizeName} <Link href={`/products/${line.productId}?edit=${encodeURIComponent(`guest:${line.key}`)}`}>Chỉnh cấu hình</Link> <button type="button" onClick={() => remove(`guest:${line.key}`)}>Bỏ món tạm</button></li>)}</ul><button type="button" onClick={retry} disabled={busy}>Thử đồng bộ lại</button></div>}
           {ready === false ? <p role="status">Đang đồng bộ giỏ hàng…</p> : lines.length === 0 ? (
-            <div className="cart-empty">
-              <p>Giỏ của bạn đang trống.</p>
-              <Link href="/menu">Chọn món</Link>
-            </div>
+            <EmptyCart />
           ) : (
             <div className="cart-products-scroll" role="region" aria-label="Danh sách món trong giỏ" tabIndex={0}>
             <div className="cart-column-head" aria-hidden="true">
@@ -83,9 +81,10 @@ export function CartPageBody() {
           )}
         </div>
 
-        <aside className="cart-summary" aria-label="Tóm tắt đơn">
+        {lines.length > 0 && <aside className="cart-summary" aria-label="Tóm tắt đơn">
           <h2>Tóm tắt đơn</h2>
           <dl>
+            <div><dt>Tổng số lượng</dt><dd>{count} ly</dd></div>
             <div className="cart-summary-total"><dt>Tạm tính</dt><dd>{formatPrice(subtotal)}đ</dd></div>
           </dl>
           {lines.length > 0 ? (
@@ -94,7 +93,7 @@ export function CartPageBody() {
             <button type="button" className="cart-order" disabled>Xác nhận mua</button>
           )}
           <Link className="cart-more" href="/menu">Mua thêm món</Link>
-        </aside>
+        </aside>}
       </div>
       {loginOpen && <PurchaseFlow onClose={() => setLoginOpen(false)} />}
     </section>

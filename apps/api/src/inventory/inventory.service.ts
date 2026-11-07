@@ -81,15 +81,9 @@ export class InventoryService {
       input.sizeId,
       tx,
     );
-    if (
-      !product?.isAvailable ||
-      product.category?.isActive === false ||
-      !size.isAvailable
-    )
-      throw new BadRequestException({
-        code: 'INVALID_OPTIONS',
-        message: 'Sản phẩm hoặc Size đã ngừng bán.',
-      });
+    if (!product?.isAvailable) throw new BadRequestException({ code: 'PRODUCT_UNAVAILABLE', message: 'Món đang ngừng bán.' });
+    if (product.category?.isActive === false) throw new BadRequestException({ code: 'CATEGORY_UNAVAILABLE', message: 'Danh mục đang ngừng bán.' });
+    if (!size.isAvailable) throw new BadRequestException({ code: 'SIZE_UNAVAILABLE', message: 'Size đang ngừng bán.' });
     if (size.availableQuantity === null)
       throw new ConflictException({
         code: 'INVENTORY_UNINITIALIZED',
@@ -98,7 +92,7 @@ export class InventoryService {
     if (size.availableQuantity < input.quantity)
       throw new ConflictException({
         code: 'OUT_OF_STOCK',
-        message: 'Món vừa hết hoặc không đủ hàng.',
+        message: size.availableQuantity === 0 ? 'Hết hàng.' : 'Không đủ số lượng.',
       });
     const toppings = await tx.topping.findMany({
       where: { id: { in: input.toppingIds }, isAvailable: true },

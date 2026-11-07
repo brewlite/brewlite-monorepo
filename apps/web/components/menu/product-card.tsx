@@ -2,19 +2,20 @@ import Link from "next/link";
 import type { Product } from "../../types/product";
 import { formatPrice } from "../../lib/format-price";
 import { ProductImage } from "./product-image";
+import { productIssue } from "../../lib/product-availability";
 
 type ProductCardProps = { product: Product };
 
 export function ProductCard({ product }: ProductCardProps) {
   const name = product.name.trim();
-  const soldOut = !product.isAvailable || !product.sizes.some((size) => size.isAvailable !== false && size.onHand != null && size.onHand - (size.reserved ?? 0) > 0);
+  const issue = productIssue(product);
   const href = `/products/${product.id}`;
 
   return (
     <article className="bean-card">
       <Link href={href} className="bean-thumb" aria-label={name}>
         <ProductImage key={product.imageUrl} url={product.imageUrl} name={name} />
-        {soldOut ? <span className="pill">{product.sizes.some((size) => size.onHand !== null) ? "Hết hàng" : "Chưa khả dụng"}</span> : null}
+        {issue ? <span className="pill">{issue}</span> : null}
       </Link>
       <div className="bean-body">
         <h3 className="bean-name">

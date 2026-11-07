@@ -1,7 +1,7 @@
 // Prisma Decimal is serialized as a JSON string; accept numeric JSON as well.
 export type DecimalPrice = string | number;
 
-export type Category = { id: string; name: string };
+export type Category = { id: string; name: string; isActive?: boolean };
 export type Size = {
   id: string;
   productId: string | null;

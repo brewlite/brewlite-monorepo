@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { CheckoutReview } from "../components/checkout/checkout-review";
 import { CartPageBody } from "../components/cart/cart-page-body";
 
@@ -17,6 +17,8 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 it("confirms purchase directly from the cart and asks for login", async () => {
   render(<CartPageBody />);
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Giỏ hàng');
+  expect(within(screen.getByLabelText('Tóm tắt đơn')).getByText('2 ly')).toBeDefined();
   expect(screen.queryByRole("link", { name: "Xem lại đơn" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Xác nhận mua" }));
   expect(await screen.findByRole("dialog", { name: "Đăng nhập" })).toBeTruthy();

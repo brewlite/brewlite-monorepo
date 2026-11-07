@@ -15,7 +15,7 @@ describe("API compatibility", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => products });
     vi.stubGlobal("fetch", fetchMock);
     expect(await getProducts()).toEqual(products);
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3001/api/products");
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3001/api/products", { cache: "no-store" });
   });
 
   it.each(["", "NaN", "Infinity", "-1", "invalid", null, -1, Infinity])("rejects invalid price %s through the menu error state", async (basePrice) => {

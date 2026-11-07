@@ -3,16 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ProductDetail, Size, Topping } from "../../types/product";
+import type { ProductDetail, Topping } from "../../types/product";
 import { getProduct, ProductNotFoundError } from "../../services/product.service";
 import { formatPrice, parsePrice } from "../../lib/format-price";
 import { MAX_LINE_QUANTITY, MIN_LINE_QUANTITY, lineTotal } from "../../lib/cart-config";
 import { ProductImage } from "../menu/product-image";
 import { useCart } from "../cart/cart-provider";
-
-function cheapestSize(sizes: Size[]) {
-  return [...sizes].sort((a, b) => parsePrice(a.extraPrice) - parsePrice(b.extraPrice))[0] ?? null;
-}
+import { configurationIssue } from "../../lib/product-availability";
 
 export function ProductDetailView({ id, editKey }: { id: string; editKey?: string }) {
   const { addLine, updateLine, lines, pendingGuest = [], busy, ready } = useCart();
@@ -39,7 +36,7 @@ export function ProductDetailView({ id, editKey }: { id: string; editKey?: strin
         const data = await getProduct(id);
         if (!active) return;
         setProduct(data);
-        setSizeId(editingLine ? editingLine.sizeId : cheapestSize(data.sizes)?.id ?? null);
+        setSizeId(editingLine?.sizeId ?? null);
         setToppingIds(editingLine?.toppings.map((item) => item.id) ?? []);
         setQuantity(editingLine?.quantity ?? 1);
         setNote(editingLine?.note ?? "");
@@ -60,7 +57,8 @@ export function ProductDetailView({ id, editKey }: { id: string; editKey?: strin
     () => (product?.availableToppings ?? []).filter((topping) => topping.isAvailable && toppingIds.includes(topping.id)),
     [product, toppingIds],
   );
-  const soldOut = !product || !product.isAvailable || !size || size.isAvailable === false || size.onHand == null || size.onHand - (size.reserved ?? 0) < quantity;
+  const availabilityIssue = product ? configurationIssue(product, size, quantity) : "Đang tải món";
+  const soldOut = availabilityIssue !== null;
   const invalidToppings = toppingIds.filter((selected) => !product?.availableToppings.some((item) => item.id === selected && item.isAvailable));
 
   const unitPrice = product
@@ -131,12 +129,12 @@ export function ProductDetailView({ id, editKey }: { id: string; editKey?: strin
                 ) : null}
                 <p className="field-label">Giá cơ bản</p>
                 <p className="bean-price">{formatPrice(product.basePrice)}đ</p>
-                {soldOut && <p className="status-line" role="status">{product.isAvailable ? "Hết hàng" : "Món đang ngừng bán"}</p>}
+                {availabilityIssue && <p className="status-line" role="status">{availabilityIssue}</p>}
 
                 <fieldset style={{ border: 0, padding: 0, margin: "1.2rem 0" }}>
                   <legend className="field-label">Size</legend>
                   {product.sizes.length === 0 ? (
-                    <p>Size mặc định</p>
+                    <p>Chưa có Size được cấu hình.</p>
                   ) : (
                     <div className="choice-row">
                       {product.sizes.map((item) => (
@@ -192,11 +190,10 @@ export function ProductDetailView({ id, editKey }: { id: string; editKey?: strin
 
                 <div className="cart-total"><span>Tạm tính</span><span className="amt">{formatPrice(lineTotal(unitPrice, quantity))}đ</span></div>
                 {invalidToppings.map((selected) => <label key={selected}><input type="checkbox" checked onChange={() => setToppingIds((ids) => ids.filter((value) => value !== selected))} />{editingLine?.toppings.find((item) => item.id === selected)?.name ?? "Topping đã chọn"} (không còn khả dụng, cần bỏ chọn)</label>)}
-                {size?.onHand === null && <p role="status">Chưa nhập tồn kho</p>}
                 {formError && <p role="alert">{formError}</p>}
                 {editKey && !editingLine && ready !== false && <p role="alert">Món cần sửa không còn trong giỏ. Vui lòng mở lại giỏ hàng.</p>}
-                <button type="button" className="add-bag" disabled={soldOut || busy || ready === false || (!!editKey && !editingLine)} onClick={addToCart}>
-                  {soldOut ? "Món không khả dụng" : editKey ? "Lưu thay đổi" : "Thêm vào giỏ hàng"}
+                <button type="button" className="add-bag" disabled={soldOut || invalidToppings.length > 0 || busy || ready === false || (!!editKey && !editingLine)} onClick={addToCart}>
+                  {availabilityIssue ?? (editKey ? "Lưu thay đổi" : "Thêm vào giỏ hàng")}
                 </button>
               </div>
             </div>
