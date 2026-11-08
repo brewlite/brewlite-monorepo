@@ -1,9 +1,10 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 
 export const VNPAY_SANDBOX = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
 export type VNParams = Record<string, string>;
+export type VNPayDiagnostic = { reason: string; responseCode?: string; httpStatus?: number; signatureVerified?: boolean; retryAfterSeconds?: number };
 const encode = (value: string) => encodeURIComponent(value).replace(/%20/g, '+');
 export function vnCanonical(params: VNParams) {
   return Object.keys(params).filter((key) => key.startsWith('vnp_') && !['vnp_SecureHash', 'vnp_SecureHashType'].includes(key)).sort().map((key) => `${encode(key)}=${encode(params[key])}`).join('&');
@@ -14,8 +15,24 @@ export function vnSignature(params: VNParams, secret: string) {
 export function vnDate(date: Date) {
   return new Date(date.getTime() + 7 * 3600000).toISOString().replace(/[-:T]/g, '').slice(0, 14);
 }
+/** Parse VNPay yyyyMMddHHmmss in GMT+7. Invalid calendar values return null. */
+export function vnParseDate(value: string | undefined): Date | null {
+  if (!value || !/^\d{14}$/.test(value)) return null;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  const hour = Number(value.slice(8, 10));
+  const minute = Number(value.slice(10, 12));
+  const second = Number(value.slice(12, 14));
+  const date = new Date(Date.UTC(year, month - 1, day, hour - 7, minute, second));
+  return vnDate(date) === value ? date : null;
+}
 @Injectable()
 export class VNPayService {
+  private readonly logger = new Logger(VNPayService.name);
+  logIpn(reply: { RspCode: string }, reference?: string) {
+    this.logger.log(JSON.stringify({ event: 'vnpay.ipn', responseCode: reply.RspCode, ...(reference ? { correlation: createHash('sha256').update(reference).digest('hex').slice(0, 16) } : {}) }));
+  }
   config() {
     const tmnCode = process.env.VNPAY_TMN_CODE?.trim();
     const secret = process.env.VNPAY_HASH_SECRET;
@@ -55,22 +72,50 @@ export class VNPayService {
     if (params.vnp_TransactionStatus === '02' && ['09', '10', '11', '12', '13', '24', '51', '65', '75', '79', '99'].includes(params.vnp_ResponseCode)) return 'FAILED';
     return 'UNKNOWN';
   }
-  async query(ref: string, createdAt: Date, expectedAmount: string) {
+  async query(ref: string, createdAt: Date, expectedAmount: string, onDiagnostic?: (value: VNPayDiagnostic) => void) {
+    let responseCode: string | undefined;
+    let verified = false;
+    const report = (reason: string, httpStatus?: number) => {
+      const diagnostic: VNPayDiagnostic = { reason, ...(responseCode ? { responseCode } : {}), ...(httpStatus ? { httpStatus } : {}), signatureVerified: verified };
+      onDiagnostic?.(diagnostic);
+      this.logger.log(JSON.stringify({ event: 'vnpay.querydr', correlation: createHash('sha256').update(ref).digest('hex').slice(0, 16), ...diagnostic }));
+      return null;
+    };
+    let phase = 'CONFIGURATION_ERROR';
+    try {
     const { tmnCode, secret } = this.config();
     const params: VNParams = { vnp_RequestId: randomUUID().replace(/-/g, ''), vnp_Version: '2.1.0', vnp_Command: 'querydr', vnp_TmnCode: tmnCode, vnp_TxnRef: ref, vnp_TransactionDate: vnDate(createdAt), vnp_CreateDate: vnDate(new Date()), vnp_IpAddr: process.env.VNPAY_SERVER_IP || '127.0.0.1', vnp_OrderInfo: `Truy van BrewLite ${ref}` };
     const data = ['vnp_RequestId', 'vnp_Version', 'vnp_Command', 'vnp_TmnCode', 'vnp_TxnRef', 'vnp_TransactionDate', 'vnp_CreateDate', 'vnp_IpAddr', 'vnp_OrderInfo'].map((key) => params[key]).join('|');
     params.vnp_SecureHash = createHmac('sha512', secret).update(data).digest('hex');
+    phase = 'NETWORK_ERROR';
     const response = await fetch('https://sandbox.vnpayment.vn/merchant_webapi/api/transaction', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params), signal: AbortSignal.timeout(10000), redirect: 'error' });
-    if (!response.ok) return null;
+    if (!response.ok) return report('HTTP_ERROR', response.status);
+    phase = 'INVALID_JSON';
     const raw: unknown = await response.json();
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return report('INVALID_RESPONSE');
+    const rawCode = (raw as Record<string, unknown>).vnp_ResponseCode;
+    if (typeof rawCode === 'string' && /^\d{2}$/.test(rawCode)) responseCode = rawCode;
     const result: VNParams = {};
-    for (const [key, value] of Object.entries(raw)) { if (typeof value !== 'string') return null; result[key] = value; }
+    for (const [key, value] of Object.entries(raw)) { if (typeof value !== 'string') return report('INVALID_RESPONSE'); result[key] = value; }
     const signedFields = ['vnp_ResponseId', 'vnp_Command', 'vnp_ResponseCode', 'vnp_Message', 'vnp_TmnCode', 'vnp_TxnRef', 'vnp_Amount', 'vnp_BankCode', 'vnp_PayDate', 'vnp_TransactionNo', 'vnp_TransactionType', 'vnp_TransactionStatus', 'vnp_OrderInfo', 'vnp_PromotionCode', 'vnp_PromotionAmount'];
     const digest = createHmac('sha512', secret).update(signedFields.map((key) => result[key] ?? '').join('|')).digest('hex');
-    if (!/^[a-f0-9]{128}$/i.test(result.vnp_SecureHash ?? '') || !timingSafeEqual(Buffer.from(result.vnp_SecureHash, 'hex'), Buffer.from(digest, 'hex'))) return null;
-    if (result.vnp_TmnCode !== tmnCode || result.vnp_TxnRef !== ref || result.vnp_Command !== 'querydr' || result.vnp_ResponseCode !== '00' || result.vnp_TransactionType !== '01' || result.vnp_Amount !== (BigInt(expectedAmount) * 100n).toString() || !result.vnp_ResponseId) return null;
-    const outcome = result.vnp_TransactionStatus === '00' && /^[1-9]\d{0,14}$/.test(result.vnp_TransactionNo ?? '') ? 'SUCCESS' : result.vnp_TransactionStatus === '02' ? 'FAILED' : 'UNKNOWN';
-    return { params: result, outcome: outcome as 'SUCCESS' | 'FAILED' | 'UNKNOWN' };
+    if (!result.vnp_SecureHash) return report('MISSING_SIGNATURE');
+    if (!/^[a-f0-9]{128}$/i.test(result.vnp_SecureHash) || !timingSafeEqual(Buffer.from(result.vnp_SecureHash, 'hex'), Buffer.from(digest, 'hex'))) return report('INVALID_SIGNATURE');
+    verified = true;
+    if (result.vnp_TmnCode !== tmnCode) return report('MERCHANT_MISMATCH');
+    if (result.vnp_TxnRef !== ref) return report('REFERENCE_MISMATCH');
+    if (result.vnp_ResponseCode !== '00') return report('PROVIDER_ERROR');
+    if (result.vnp_Command && result.vnp_Command !== 'querydr') return report('INVALID_COMMAND');
+    if (result.vnp_TransactionType !== '01') return report('INVALID_TRANSACTION_TYPE');
+    if (result.vnp_Amount !== (BigInt(expectedAmount) * 100n).toString()) return report('AMOUNT_MISMATCH');
+    if (!result.vnp_ResponseId) return report('MISSING_RESPONSE_ID');
+    // QueryDr vnp_ResponseCode 00 means the inquiry succeeded. The payment result is vnp_TransactionStatus.
+    const outcome: 'SUCCESS' | 'FAILED' | 'UNKNOWN' = result.vnp_TransactionStatus === '00' && /^[1-9]\d{0,14}$/.test(result.vnp_TransactionNo ?? '') ? 'SUCCESS' : result.vnp_TransactionStatus === '02' ? 'FAILED' : 'UNKNOWN';
+    report('VERIFIED');
+    return { params: result, outcome };
+    } catch (error) {
+      const timedOut = typeof error === 'object' && error !== null && 'name' in error && typeof error.name === 'string' && ['TimeoutError', 'AbortError'].includes(error.name);
+      return report(timedOut ? 'TIMEOUT' : phase);
+    }
   }
 }

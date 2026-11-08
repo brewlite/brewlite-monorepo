@@ -1,5 +1,5 @@
 import { getStore, sendStore } from './store.service';
-export type Payment = { id: string; orderId: string; status: 'PENDING' | 'UNKNOWN' | 'SUCCESS' | 'FAILED'; amount: string; providerPaymentId?: string | null; paymentUrl?: string };
+export type Payment = { id: string; orderId: string; status: 'PENDING' | 'UNKNOWN' | 'SUCCESS' | 'FAILED'; amount: string; providerPaymentId?: string | null; paymentUrl?: string; reconciliation?: { reason: string; responseCode?: string; httpStatus?: number; signatureVerified?: boolean; retryAfterSeconds?: number } };
 export function paymentDestination(value: string) {
   const url = new URL(value);
   if (url.origin !== 'https://sandbox.vnpayment.vn' || url.pathname !== '/paymentv2/vpcpay.html' || url.username || url.password) throw new Error('Đường dẫn thanh toán Sandbox không hợp lệ.');

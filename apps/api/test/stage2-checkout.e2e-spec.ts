@@ -3,11 +3,12 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 import bcrypt from 'bcrypt';
 import request from 'supertest';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { InventoryService } from '../src/inventory/inventory.service';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { CommerceService } from '../src/commerce/commerce.service';
-import { vnSignature } from '../src/commerce/vnpay.service';
+import { vnDate } from '../src/commerce/vnpay.service';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
@@ -16,6 +17,24 @@ import path from 'node:path';
   let customers: { id: string; cookie: string }[]; let product: string; let size: string; let topping: string;
   const previousEnv = { ...process.env };
   const secret = randomBytes(32).toString('hex'); // Test-only signer, never merchant credentials.
+  const originalFetch = globalThis.fetch;
+  const noNetwork = async (): Promise<Response> => { throw new Error('External network forbidden in Stage2 tests'); };
+  const queryFields = ['vnp_ResponseId', 'vnp_Command', 'vnp_ResponseCode', 'vnp_Message', 'vnp_TmnCode', 'vnp_TxnRef', 'vnp_Amount', 'vnp_BankCode', 'vnp_PayDate', 'vnp_TransactionNo', 'vnp_TransactionType', 'vnp_TransactionStatus', 'vnp_OrderInfo', 'vnp_PromotionCode', 'vnp_PromotionAmount'];
+  function mockQuery(p: { providerPaymentId: string; amount: string }, overrides: Record<string, string> = {}, badSignature = false) {
+    const raw: Record<string, string> = { vnp_ResponseId: randomUUID(), vnp_Command: 'querydr', vnp_ResponseCode: '00', vnp_Message: 'Fixture', vnp_TmnCode: 'STG2TEST', vnp_TxnRef: p.providerPaymentId.slice(6), vnp_Amount: (BigInt(p.amount) * 100n).toString(), vnp_TransactionNo: (BigInt('0x' + p.providerPaymentId.slice(-12)) + 1n).toString(), vnp_TransactionType: '01', vnp_TransactionStatus: '00', ...overrides };
+    const signature = createHmac('sha512', secret).update(queryFields.map((key) => raw[key] ?? '').join('|')).digest('hex');
+    globalThis.fetch = async () => new Response(JSON.stringify({ ...raw, vnp_SecureHash: badSignature ? '0'.repeat(128) : signature }));
+  }
+  async function snapshot(orderId: string, paymentId: string) {
+    return {
+      payment: await db.payment.findUniqueOrThrow({ where: { id: paymentId } }),
+      order: await db.order.findUniqueOrThrow({ where: { id: orderId }, include: { history: true } }),
+      reservation: await db.orderReservation.findUniqueOrThrow({ where: { orderId } }),
+      stock: await db.size.findUniqueOrThrow({ where: { id: size } }),
+      events: await db.paymentEvent.findMany({ where: { paymentId } }),
+      notifications: await db.notification.count({ where: { orderId } }),
+    };
+  }
   const get = (url: string, actor = 0) => request(app.getHttpServer()).get(`/api${url}`).set('Cookie', customers[actor].cookie);
   const post = (url: string, body: object, key = randomUUID(), actor = 0) => request(app.getHttpServer()).post(`/api${url}`).set('Cookie', customers[actor].cookie).set('Origin', 'http://localhost:3000').set('Idempotency-Key', key).send(body);
   const item = (quantity = 1, note = '') => ({ productId: product, sizeId: size, toppingIds: [topping], quantity, note });
@@ -32,7 +51,9 @@ import path from 'node:path';
   async function payment(orderId: string) { return (await post(`/orders/${orderId}/payments`, { method: 'VNPAY' }).expect(201)).body; }
   function event(p: { providerPaymentId: string; amount: string }, response = '00', state = '00', override: Record<string, string> = {}) {
     const params = { vnp_TmnCode: 'STG2TEST', vnp_TxnRef: p.providerPaymentId.slice(6), vnp_Amount: (BigInt(p.amount) * 100n).toString(), vnp_ResponseCode: response, vnp_TransactionStatus: state, vnp_TransactionNo: (BigInt('0x' + p.providerPaymentId.slice(-12)) + 1n).toString(), ...override };
-    return { ...params, vnp_SecureHash: vnSignature(params, secret) };
+    // Independent test signer: do not call the implementation under test.
+    const canonical = new URLSearchParams(Object.entries(params).sort(([a], [b]) => a.localeCompare(b))).toString();
+    return { ...params, vnp_SecureHash: createHmac('sha512', secret).update(canonical).digest('hex') };
   }
   const ipn = (params: object) => request(app.getHttpServer()).get('/api/payments/vnpay/ipn').query(params);
   beforeAll(async () => {
@@ -41,6 +62,7 @@ import path from 'node:path';
     process.env.DATABASE_URL = testUrl.toString(); process.env.VNPAY_TMN_CODE = 'STG2TEST'; process.env.VNPAY_HASH_SECRET = secret;
     process.env.VNPAY_RETURN_URL = 'http://localhost:3001/api/payments/vnpay/return';
     process.env.VNPAY_RECONCILE_ENABLED = 'false';
+    globalThis.fetch = noNetwork;
     process.env.FRONTEND_ORIGIN = 'http://localhost:3000,http://localhost:3100';
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication(); app.use(cookieParser()); app.setGlobalPrefix('api'); app.enableCors({ origin: ['http://localhost:3000', 'http://localhost:3100'], credentials: true }); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.init();
@@ -63,7 +85,8 @@ import path from 'node:path';
     size = (await db.size.create({ data: { productId: product, name: 'M', extraPrice: '0', onHand: 20 } })).id;
     topping = (await db.topping.create({ data: { name: `Stage2 topping ${randomUUID()}`, price: '5000' } })).id;
   });
-  afterAll(async () => { await app?.close(); process.env = previousEnv; });
+  afterEach(() => { globalThis.fetch = noNetwork; jest.restoreAllMocks(); });
+  afterAll(async () => { await app?.close(); process.env = previousEnv; globalThis.fetch = originalFetch; });
   it('prices coupon/points, snapshots, holds resources and retries the same Order exactly once', async () => {
     const coupon = await db.promotion.create({ data: { code: randomUUID(), discountType: 'FIXED_AMOUNT', discountValue: '5000', minOrderValue: '10000', startDate: new Date(Date.now() - 1000), endDate: new Date(Date.now() + 3600000), usageLimit: 1 } });
     // Product policy normalizes coupon lookup to uppercase.
@@ -122,6 +145,116 @@ import path from 'node:path';
     expect(await db.paymentEvent.count({ where: { paymentId: p.id } })).toBe(1);
     expect((await get(`/orders/${o.id}`).expect(200)).body.history.at(-1).toStatus).toBe('PAID');
     await get(`/orders/${o.id}`, 1).expect(404); expect((await get('/orders').expect(200)).body.some((row: { id: string }) => row.id === o.id)).toBe(true);
+  });
+  it.each(['order', 'reservation'])('quarantines signed success after %s expiry without consuming stock', async (expired) => {
+    const o = await placed(); const p = await payment(o.id);
+    const past = new Date(Date.now() - 1000);
+    if (expired === 'order') await db.order.update({ where: { id: o.id }, data: { expiresAt: past } });
+    else await db.orderReservation.update({ where: { orderId: o.id }, data: { expiresAt: past } });
+    const callback = event(p);
+    expect((await ipn(callback)).body.RspCode).toBe('99');
+    expect((await ipn(callback)).body.RspCode).toBe('99');
+    expect(await db.payment.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ status: 'UNKNOWN', failureReason: 'RECONCILIATION_REQUIRED' });
+    expect(await db.order.findUniqueOrThrow({ where: { id: o.id } })).toMatchObject({ status: 'PENDING_PAYMENT' });
+    expect(await db.orderReservation.findUniqueOrThrow({ where: { orderId: o.id } })).toMatchObject({ state: 'HELD' });
+    expect(await db.size.findUniqueOrThrow({ where: { id: size } })).toMatchObject({ onHand: 20, reserved: 1 });
+    expect(await db.paymentEvent.count({ where: { paymentId: p.id, processingStatus: 'REQUIRES_REVIEW' } })).toBe(1);
+  });
+  it.each(['order', 'reservation'])('does not fulfill an expired %s even when signed PayDate is before expiry', async (expired) => {
+    const o = await placed(); const p = await payment(o.id);
+    const deadline = new Date(Date.now() - 1000);
+    if (expired === 'order') await db.order.update({ where: { id: o.id }, data: { expiresAt: deadline } });
+    else await db.orderReservation.update({ where: { orderId: o.id }, data: { expiresAt: deadline } });
+    const before = await snapshot(o.id, p.id);
+    const callback = event(p, '00', '00', { vnp_PayDate: vnDate(new Date(deadline.getTime() - 1000)) });
+    expect((await ipn(callback)).body.RspCode).toBe('99');
+    const after = await snapshot(o.id, p.id);
+    expect(after.payment).toMatchObject({ status: 'UNKNOWN', failureReason: 'RECONCILIATION_REQUIRED' });
+    expect(after.order).toEqual(before.order); expect(after.reservation).toEqual(before.reservation); expect(after.stock).toEqual(before.stock);
+    expect(after.events).toHaveLength(1); expect(after.events[0].processingStatus).toBe('REQUIRES_REVIEW');
+    await ipn(callback); expect(await snapshot(o.id, p.id)).toEqual(after);
+  });
+  it('rolls back payment, event, order, reservation and stock when inventory consumption fails, then retries once', async () => {
+    const o = await placed(); const p = await payment(o.id); const before = await snapshot(o.id, p.id);
+    const inventory = app.get(InventoryService); const consume = inventory.consume.bind(inventory);
+    const failure = jest.spyOn(inventory, 'consume').mockImplementationOnce(async (tx, id, amount) => {
+      await consume(tx, id, amount); // Fail after a real inventory mutation inside the transaction.
+      throw new Error('Injected rollback after stock write');
+    });
+    const callback = event(p);
+    expect((await ipn(callback)).body.RspCode).toBe('99');
+    expect(await snapshot(o.id, p.id)).toEqual(before);
+    failure.mockRestore();
+    expect((await ipn(callback)).body.RspCode).toBe('00');
+    const after = await snapshot(o.id, p.id);
+    expect(after.payment.status).toBe('SUCCESS'); expect(after.order.status).toBe('PAID'); expect(after.reservation.state).toBe('CONSUMED');
+    expect(after.stock).toMatchObject({ onHand: 19, reserved: 0 }); expect(after.events).toHaveLength(1);
+    expect((await ipn(callback)).body.RspCode).toBe('02'); expect(await snapshot(o.id, p.id)).toEqual(after);
+  });
+  it.each(['success', 'failed', 'signature', 'amount', 'timeout', 'network'] as const)('reconciles mocked QueryDr %s through authenticated HTTP', async (scenario) => {
+    const o = await placed(); const p = await payment(o.id); const before = await snapshot(o.id, p.id);
+    mockQuery(p, scenario === 'failed' ? { vnp_TransactionStatus: '02' } : scenario === 'amount' ? { vnp_Amount: '1' } : {}, scenario === 'signature');
+    if (scenario === 'timeout') globalThis.fetch = async () => { throw new DOMException('Fixture timeout', 'TimeoutError'); };
+    if (scenario === 'network') globalThis.fetch = async () => { throw new TypeError('Fixture network failure'); };
+    await post(`/payments/${p.id}/reconcile`, {}, randomUUID(), 1).expect(404);
+    const response = (await post(`/payments/${p.id}/reconcile`, {}).expect(200)).body;
+    const after = await snapshot(o.id, p.id);
+    if (scenario === 'success') {
+      expect(response.status).toBe('SUCCESS'); expect(after.order.status).toBe('PAID'); expect(after.reservation.state).toBe('CONSUMED');
+      expect(after.stock).toMatchObject({ onHand: 19, reserved: 0 }); expect(after.events).toHaveLength(1);
+      // A subsequent genuine callback must not consume inventory again.
+      expect((await ipn(event(p))).body.RspCode).toBe('02'); expect(await snapshot(o.id, p.id)).toEqual(after);
+    } else if (scenario === 'failed') {
+      expect(response.status).toBe('FAILED'); expect(after.events).toHaveLength(1);
+      expect(after.order).toEqual(before.order); expect(after.reservation).toEqual(before.reservation); expect(after.stock).toEqual(before.stock);
+    } else {
+      expect(response.status).toBe('UNKNOWN');
+      expect(response.reconciliation.reason).toBe({ signature: 'INVALID_SIGNATURE', amount: 'AMOUNT_MISMATCH', timeout: 'TIMEOUT', network: 'NETWORK_ERROR' }[scenario]);
+      expect(after.events).toEqual([]); expect(after.order).toEqual(before.order); expect(after.reservation).toEqual(before.reservation); expect(after.stock).toEqual(before.stock);
+    }
+    await post(`/payments/${p.id}/reconcile`, {}).expect(200); expect(await snapshot(o.id, p.id)).toEqual(after);
+  });
+  it.each(['order', 'reservation'])('keeps a verified QueryDr SUCCESS for expired %s in review', async (expired) => {
+    const o = await placed(); const p = await payment(o.id); const deadline = new Date(Date.now() - 1000);
+    if (expired === 'order') await db.order.update({ where: { id: o.id }, data: { expiresAt: deadline } });
+    else await db.orderReservation.update({ where: { orderId: o.id }, data: { expiresAt: deadline } });
+    const before = await snapshot(o.id, p.id);
+    mockQuery(p, { vnp_PayDate: vnDate(new Date(deadline.getTime() - 1000)) });
+    const response = (await post(`/payments/${p.id}/reconcile`, {}).expect(200)).body;
+    expect(response).toMatchObject({ status: 'UNKNOWN', failureReason: 'RECONCILIATION_REQUIRED', reconciliation: { reason: 'VERIFIED' } });
+    const after = await snapshot(o.id, p.id);
+    expect(after.order).toEqual(before.order); expect(after.reservation).toEqual(before.reservation); expect(after.stock).toEqual(before.stock);
+    expect(after.events).toHaveLength(1); expect(after.events[0]).toMatchObject({ outcome: 'SUCCESS', processingStatus: 'REQUIRES_REVIEW' });
+    await post(`/payments/${p.id}/reconcile`, {}).expect(200); expect(await snapshot(o.id, p.id)).toEqual(after);
+  });
+  it('serializes racing QueryDr and IPN confirmations without double consumption', async () => {
+    const o = await placed(); const p = await payment(o.id); mockQuery(p);
+    await Promise.all([post(`/payments/${p.id}/reconcile`, {}).expect(200), ipn(event(p)).expect(200)]);
+    const after = await snapshot(o.id, p.id);
+    expect(after.payment.status).toBe('SUCCESS'); expect(after.order.status).toBe('PAID'); expect(after.reservation.state).toBe('CONSUMED');
+    expect(after.stock).toMatchObject({ onHand: 19, reserved: 0 });
+    expect(after.events.filter((e) => e.processingStatus === 'PROCESSED')).toHaveLength(1);
+    expect(after.order.history.filter((h) => h.toStatus === 'PAID')).toHaveLength(1);
+    expect(after.notifications).toBe(1);
+    await ipn(event(p)); expect(await snapshot(o.id, p.id)).toEqual(after);
+  });
+  it('rolls back every settlement write when PostgreSQL rejects the final Payment update', async () => {
+    const o = await placed(); const p = await payment(o.id); const before = await snapshot(o.id, p.id);
+    // Test-only trigger in the verified isolated test database. It fails after
+    // event, stock, notification, reservation, order and history writes occurred.
+    await db.$executeRawUnsafe(`CREATE FUNCTION vnpay_test_reject_success() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status::text = 'SUCCESS' THEN RAISE EXCEPTION 'fixture final payment write failure'; END IF; RETURN NEW; END $$`);
+    try {
+      await db.$executeRawUnsafe('CREATE TRIGGER vnpay_test_reject_success BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION vnpay_test_reject_success()');
+      expect((await ipn(event(p))).body.RspCode).toBe('99');
+      expect(await snapshot(o.id, p.id)).toEqual(before);
+    } finally {
+      await db.$executeRawUnsafe('DROP TRIGGER IF EXISTS vnpay_test_reject_success ON payments');
+      await db.$executeRawUnsafe('DROP FUNCTION vnpay_test_reject_success()');
+    }
+    expect((await ipn(event(p))).body.RspCode).toBe('00');
+    const after = await snapshot(o.id, p.id);
+    expect(after.payment.status).toBe('SUCCESS'); expect(after.order.status).toBe('PAID'); expect(after.events).toHaveLength(1);
+    expect(after.stock).toMatchObject({ onHand: 19, reserved: 0 }); expect(after.notifications).toBe(1);
   });
   it('rejects invalid signature, amount, merchant and unknown TxnRef without side effects', async () => {
     const o = await placed(); const p = await payment(o.id);
