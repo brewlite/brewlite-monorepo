@@ -1,14 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SiteFrame } from "../../components/layout/site-frame";
 import { getStore, sendStore, type Order } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
 import { formatPrice } from "../../lib/format-price";
-import { statusName } from "../../components/orders/orders-view";
-import { InventoryEditor, type InventoryRow } from "../../components/product/inventory-editor";
 import { normalizeSearch } from "../../lib/normalize-search";
 import { AdminOverview, type OverviewProduct, type OverviewSize } from '../../components/admin/admin-overview';
 import { CenteredDialog } from '../../components/ui/centered-dialog';
+import { InventoryTable, Pencil } from '../../components/admin/inventory-table';
+import { PromotionsTable } from '../../components/admin/promotions-table';
+import { CatalogManagement } from '../../components/admin/catalog-management';
+import { AdminSidebar } from '../../components/admin/admin-sidebar';
+import { OrderMonitor } from '../../components/admin/order-monitor';
+import { ProductAvailability } from '../../components/admin/product-availability';
+import { ProductImagePicker } from '../../components/admin/product-image-picker';
+import { ProductCategoryFilter, filterAdminProducts } from '../../components/admin/product-category-filter';
+import { authHttp } from '../../services/auth.service';
+import { apiUrl } from '../../services/product.service';
 type Row = Record<string, unknown> & { id: string };
 type Field = {
   key: string;
@@ -33,7 +41,7 @@ const fields: Record<string, Field[]> = {
   sizes: [
     { key: "name", label: "Tên size" },
     { key: "productId", label: "Sản phẩm", source: "products" },
-    { key: "extraPrice", label: "Phụ phí (VND)", type: "number" },
+    { key: "extraPrice", label: "Giá cộng thêm (VND)", type: "number" },
     { key: "isAvailable", label: "Khả dụng", type: "checkbox" },
   ],
   toppings: [
@@ -67,6 +75,7 @@ const fields: Record<string, Field[]> = {
 };
 const names: Record<string, string> = {
   dashboard: "Tổng quan",
+  statistics: "Thống kê",
   categories: "Danh mục",
   products: "Sản phẩm",
   sizes: "Size và tồn kho",
@@ -87,6 +96,8 @@ function display(v: unknown) {
 }
 export default function AdminPage() {
   const [kind, setKind] = useState("dashboard");
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [loadingHeight, setLoadingHeight] = useState(0);
   const [rows, setRows] = useState<Row[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [dashboard, setDashboard] = useState<{
@@ -106,9 +117,16 @@ export default function AdminPage() {
   const [productSearch, setProductSearch] = useState("");
   const [productFilter, setProductFilter] = useState("");
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [formError, setFormError] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [formConfirmation, setFormConfirmation] = useState<{ title: string; description: string; action: string } | null>(null);
   const [overviewDetails, setOverviewDetails] = useState<{ products: OverviewProduct[]; sizes: OverviewSize[]; orders: Order[]; now: number }>({ products: [], sizes: [], orders: [], now: 0 });
-  function navigate(next: string) { setKind(next); setLoading(true); setEditing(false); setSearch(''); }
+  function navigate(next: string) {
+    if (next === kind) return;
+    setLoadingHeight(workspaceRef.current?.getBoundingClientRect().height ?? 0);
+    setKind(next); setLoading(true); setEditing(false); setSearch(''); setCategoryFilter('');
+  }
   const filteredRows = rows.filter((row) => {
     if (kind !== 'sizes') {
       const category = lookups.categories?.find((item) => item.id === row.categoryId);
@@ -117,11 +135,12 @@ export default function AdminPage() {
     const product = lookups.products?.find((item) => item.id === row.productId);
     return (!productFilter || row.productId === productFilter) && normalizeSearch(display(product?.name)).includes(normalizeSearch(productSearch));
   });
+  const productRows = kind === 'products' ? filterAdminProducts(rows, lookups.categories ?? [], categoryFilter, search) : [];
   useEffect(() => {
     let active = true;
     async function load() {
       try {
-        if (kind === "dashboard") {
+        if (kind === "dashboard" || kind === "statistics") {
           const [d, products, sizes, recentOrders] = await Promise.all([
             getStore<NonNullable<typeof dashboard>>("/admin/dashboard"),
             getStore<OverviewProduct[]>('/admin/products'),
@@ -145,6 +164,7 @@ export default function AdminPage() {
                   ] as const,
               ),
           );
+          if (kind === "categories") refs.push(["products", await getStore<Row[]>("/admin/products")]);
           if (active) {
             setRows(d);
             setLookups(Object.fromEntries(refs));
@@ -163,6 +183,7 @@ export default function AdminPage() {
     };
   }, [kind, attempt]);
   function edit(row: Row | null) {
+    setImageFile(null);
     setFormError('');
     setSelected(row);
     const next: Record<string, string | boolean> = {};
@@ -175,13 +196,23 @@ export default function AdminPage() {
           .toISOString()
           .slice(0, 16);
       } else
-        next[f.key] = value == null ? f.options?.[0] || "" : display(value);
+        next[f.key] = value == null ? (kind === "sizes" && f.key === "extraPrice" ? "0" : f.options?.[0] || "") : display(value);
     }
     setForm(next);
     setEditing(true);
   }
-  async function save(event: React.FormEvent) {
+  async function save(event: Pick<React.FormEvent, 'preventDefault'>, confirmed = false) {
     event.preventDefault();
+    if (!confirmed && selected?.isActive === true && form.isActive === false) {
+      if (kind === 'users') {
+        setFormConfirmation({ title: `Khóa tài khoản ${selected.email}?`, description: 'Người này sẽ không đăng nhập được nữa. Bạn có thể mở khóa lại bất cứ lúc nào.', action: 'Khóa tài khoản' }); return;
+      }
+      const count = (lookups.products ?? []).filter((product) => product.categoryId === selected.id).length;
+      if (kind === 'categories' && count > 0) {
+        setFormConfirmation({ title: `Tắt danh mục ${selected.name}?`, description: `Danh mục có ${count} món. Các món này sẽ ẩn khỏi thực đơn của khách.`, action: 'Tắt danh mục' }); return;
+      }
+    }
+    setFormConfirmation(null);
     setPending(true);
     setError("");
     setFormError('');
@@ -192,6 +223,11 @@ export default function AdminPage() {
       body.endDate = new Date(String(form.endDate)).toISOString();
     }
     try {
+      if (kind === 'products' && imageFile) {
+        const multipart = new FormData(); multipart.append('file', imageFile);
+        const result = await authHttp.post<{ path: string }>(apiUrl('/admin/product-images'), multipart);
+        body.imageUrl = new URL(result.data.path, apiUrl('/')).toString();
+      }
       await sendStore(
         `/admin/${kind}${selected ? `/${selected.id}` : ""}`,
         body,
@@ -207,22 +243,11 @@ export default function AdminPage() {
   }
   return (
     <SiteFrame>
-      <section className="section">
-        <div className="container store-workspace admin-workspace">
-          <header className="admin-page-heading"><div><h1>Quản trị BrewLite</h1><p>{kind === 'dashboard' ? 'Chọn việc bạn muốn làm hôm nay.' : names[kind]}</p></div><button className="admin-refresh" disabled={loading} onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Làm mới</button></header>
-          {kind !== 'dashboard' && <nav className="store-actions admin-section-nav" aria-label="Quản trị">
-            {Object.entries(names).map(([key, label]) => (
-              <button
-                key={key}
-                aria-pressed={kind === key}
-                onClick={() => {
-                  navigate(key);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>}
+      <section className="section admin-shell-section">
+        <div className="container store-workspace admin-workspace admin-shell">
+          <AdminSidebar current={kind} onNavigate={navigate} />
+          <div ref={workspaceRef} className="admin-main-panel" style={loading && loadingHeight ? { minHeight: `max(calc(100svh - 180px), ${loadingHeight}px)` } : undefined}>
+          <header className="admin-page-heading"><h1>{names[kind]}</h1><button className="admin-refresh" aria-label="Làm mới" title="Làm mới" disabled={loading} onClick={() => { setLoadingHeight(workspaceRef.current?.getBoundingClientRect().height ?? 0); setLoading(true); setAttempt((value) => value + 1); }}>↻</button></header>
           {loading && (
             <p role="status">Đang tải dữ liệu và kiểm tra quyền ADMIN…</p>
           )}
@@ -232,25 +257,39 @@ export default function AdminPage() {
               <button onClick={() => setAttempt((a) => a + 1)}>Thử lại</button>
             </p>
           )}
-          {!loading && !error && kind === "dashboard" && dashboard && (
-            <AdminOverview data={dashboard} {...overviewDetails} onNavigate={navigate} />
+          {!loading && !error && (kind === "dashboard" || kind === "statistics") && dashboard && (
+            <AdminOverview data={dashboard} {...overviewDetails} onNavigate={navigate} mode={kind === "statistics" ? "statistics" : "summary"} />
           )}
           {!loading && !error && fields[kind] && (
             <>
-              <h2>{names[kind]}</h2>
-              {kind !== "users" && (
-                <button onClick={() => edit(null)}>Thêm mới</button>
-              )}
-              {kind !== 'sizes' && <div className="admin-search-bar"><label htmlFor="admin-list-search">Tìm kiếm {names[kind].toLocaleLowerCase('vi-VN')}</label><div><input id="admin-list-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === 'users' ? 'Nhập tên hoặc email…' : kind === 'promotions' ? 'Nhập mã giảm giá…' : 'Nhập tên để tìm kiếm…'} />{search && <button type="button" onClick={() => setSearch('')}>Xóa tìm kiếm</button>}</div><p>{filteredRows.length} / {rows.length} kết quả</p></div>}
-              {!rows.length && <p>Chưa có dữ liệu.</p>}
-              {rows.length > 0 && filteredRows.length === 0 && <p role="status">Không tìm thấy kết quả phù hợp.</p>}
-              {kind === "sizes" && <div className="store-actions inventory-filters">
-                <label>Tìm sản phẩm<input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} /></label>
-                <label>Lọc sản phẩm<select value={productFilter} onChange={(event) => setProductFilter(event.target.value)}><option value="">Tất cả sản phẩm</option>{lookups.products?.map((product) => <option key={product.id} value={product.id}>{display(product.name)}</option>)}</select></label>
-                <button onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Refresh tồn kho</button>
-                <p>{filteredRows.length} / {rows.length} Size</p>
+              {kind === "promotions" && <PromotionsTable rows={rows} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
+              {['categories', 'toppings', 'users'].includes(kind) && <CatalogManagement key={kind} kind={kind as 'categories' | 'toppings' | 'users'} rows={rows} products={lookups.products ?? []} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
+              {kind === 'products' && <div className="admin-search-bar">
+                <button className="admin-add-button" onClick={() => edit(null)}>Thêm mới</button>
+                <div className="admin-search-field">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+                  <input id="admin-list-search" type="search" aria-label="Tìm sản phẩm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm sản phẩm" />
+                </div>
+                <button type="button" aria-label="Làm mới dữ liệu" title="Làm mới" onClick={() => { setLoadingHeight(workspaceRef.current?.getBoundingClientRect().height ?? 0); setLoading(true); setAttempt((value) => value + 1); }}>↻</button>
+                <p role="status">{productRows.length} / {rows.length} kết quả</p>
               </div>}
-              <div className={`admin-table${kind === "sizes" ? " inventory-table" : ""}`}>
+              {kind === 'products' && <ProductCategoryFilter categories={lookups.categories ?? []} value={categoryFilter} onChange={setCategoryFilter} />}
+              {['products', 'sizes'].includes(kind) && !rows.length && <p>Chưa có dữ liệu.</p>}
+              {['products', 'sizes'].includes(kind) && rows.length > 0 && (kind === 'products' ? productRows : filteredRows).length === 0 && <p role="status">Không tìm thấy kết quả phù hợp.</p>}
+              {kind === "sizes" && <>
+              <div className="store-actions inventory-filters">
+                <button className="admin-add-button" onClick={() => edit(null)}>+ Thêm size</button>
+                <div className="admin-search-field">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+                  <input type="search" aria-label="Tìm sản phẩm" placeholder="Tìm sản phẩm" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} />
+                </div>
+                <button aria-label="Làm mới tồn kho" title="Làm mới tồn kho" onClick={() => { setLoadingHeight(workspaceRef.current?.getBoundingClientRect().height ?? 0); setLoading(true); setAttempt((value) => value + 1); }}>↻</button>
+                <p className="admin-search-count" role="status">Hiển thị {filteredRows.length} trên {rows.length} size</p>
+                <select aria-label="Lọc sản phẩm" value={productFilter} onChange={(event) => setProductFilter(event.target.value)}><option value="">Tất cả sản phẩm</option>{lookups.products?.map((product) => <option key={product.id} value={product.id}>{display(product.name)}</option>)}</select>
+              </div>
+              <InventoryTable rows={filteredRows} products={lookups.products ?? []} onEdit={edit} onSaved={() => setAttempt((value) => value + 1)} />
+              </>}
+              {kind === "products" && <div className="admin-table">
                 <table>
                   <thead>
                     <tr>
@@ -265,12 +304,11 @@ export default function AdminPage() {
                         .map((f) => (
                           <th key={f.key}>{f.label}</th>
                         ))}
-                      {kind === "sizes" && <><th>On hand</th><th>Reserved</th><th>Available</th><th>Trạng thái</th><th>Điều chỉnh tồn</th></>}
-                      <th>Thao tác</th>
+                      <th>Chỉnh sửa</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRows.map((r) => (
+                    {productRows.map((r) => (
                       <tr key={r.id}>
                         <td>{display(r.name || r.email || r.code)}</td>
                         {fields[kind]
@@ -288,31 +326,23 @@ export default function AdminPage() {
                                       (v) => v.id === r[f.key],
                                     )?.name,
                                   )
-                                : ['basePrice', 'extraPrice', 'price', 'minOrderValue', 'maxDiscount'].includes(f.key) && r[f.key] != null ? `${formatPrice(String(r[f.key]))}đ` : f.key === 'isAvailable' ? (r[f.key] ? 'Đang bán' : 'Ngừng bán') : display(r[f.key])}
+                                : ['basePrice', 'extraPrice', 'price', 'minOrderValue', 'maxDiscount'].includes(f.key) && r[f.key] != null ? `${formatPrice(String(r[f.key]))}đ` : f.key === 'isAvailable' ? <ProductAvailability id={r.id} name={String(r.name)} available={r.isAvailable === true} onRefresh={() => setAttempt((value) => value + 1)} /> : display(r[f.key])}
                             </td>
                           ))}
-                        {kind === "sizes" && (
-                          <><td>{r.onHand == null ? "Chưa nhập tồn kho" : display(r.onHand)}</td><td>{display(r.reserved)}</td><td>{r.onHand == null ? "Chưa nhập tồn kho" : Number(r.onHand) - Number(r.reserved)}</td><td>{r.sellingStatus === "STOPPED" ? "Ngừng bán" : r.onHand == null ? "Chưa nhập tồn" : Number(r.onHand) - Number(r.reserved) <= 0 ? "Hết hàng" : "Đang bán"}</td><td>
-                            <InventoryEditor
-                              row={r as InventoryRow}
-                              productName={display(lookups.products?.find((product) => product.id === r.productId)?.name)}
-                              onSaved={() => setAttempt((a) => a + 1)}
-                            />
-                          </td></>
-                        )}
                         <td>
                           <button
-                            disabled={kind === "users" && r.role === "ADMIN"}
+                            className="inventory-icon-button"
+                            aria-label={`Sửa ${String(r.name)}`}
                             onClick={() => edit(r)}
                           >
-                            Sửa
+                            <Pencil />
                           </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
             </>
           )}
           {editing && (
@@ -320,10 +350,10 @@ export default function AdminPage() {
             <form className="admin-form" onSubmit={save}>
               <button type="button" className="admin-edit-close" aria-label="Đóng form" disabled={pending} onClick={() => setEditing(false)}>×</button>
               <h2>
-                {selected ? "Cập nhật" : "Thêm"} {names[kind]}
+                {selected ? "Cập nhật" : "Thêm"} {kind === "sizes" ? "size" : names[kind]}
               </h2>
               {(fields[kind] || []).map((f) => (
-                <label key={f.key}>
+                kind === 'products' && f.key === 'imageUrl' ? <ProductImagePicker key={f.key} current={String(form.imageUrl ?? '')} file={imageFile} disabled={pending} onChange={setImageFile} /> : <label key={f.key}>
                   {f.label}
                   {f.source || f.options ? (
                     <select
@@ -378,6 +408,7 @@ export default function AdminPage() {
                       }
                     />
                   )}
+                  {kind === "sizes" && f.key === "extraPrice" && <small className="size-price-help">Giá cố định cộng vào giá cơ bản khi chọn size này. Nhập 0 nếu không phụ phí.</small>}
                 </label>
               ))}
               {formError && <p role="alert">{formError}</p>}
@@ -391,34 +422,10 @@ export default function AdminPage() {
             </CenteredDialog>
           )}
           {!loading && !error && kind === "orders" && (
-            <>
-              {!orders.length && <p>Chưa có đơn mới.</p>}
-              {orders.map((o) => (
-                <article key={o.id} className="store-order">
-                  <h2>{o.orderCode}</h2>
-                  <p>
-                    {statusName[o.status]} · {formatPrice(o.finalTotal)}đ
-                  </p>
-                  <ul>
-                    {o.items.map((i) => (
-                      <li key={i.id}>
-                        {i.productName} · {i.sizeName} · {i.quantity} ly ·{" "}
-                        {i.note}
-                      </li>
-                    ))}
-                  </ul>
-                  {o.payments.map((p) => (
-                    <p key={p.id}>
-                      {p.method} · {p.status} · {formatPrice(p.amount)}đ
-                    </p>
-                  ))}
-                  <p>
-                    {o.history.map((h) => statusName[h.toStatus]).join(" → ")}
-                  </p>
-                </article>
-              ))}
-            </>
+            <OrderMonitor orders={orders} />
           )}
+          {formConfirmation && <CenteredDialog label={formConfirmation.title} className="admin-confirm-dialog" onClose={() => setFormConfirmation(null)}><h2>{formConfirmation.title}</h2><p>{formConfirmation.description}</p><div className="store-actions"><button onClick={() => setFormConfirmation(null)}>Hủy</button><button onClick={() => void save({ preventDefault() {} }, true)}>{formConfirmation.action}</button></div></CenteredDialog>}
+          </div>
         </div>
       </section>
     </SiteFrame>

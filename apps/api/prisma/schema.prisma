@@ -14,7 +14,6 @@ enum UserRole {
   ADMIN
   CUSTOMER
   STAFF
-  MANAGER
 }
 
 enum LoyaltyTransactionType {

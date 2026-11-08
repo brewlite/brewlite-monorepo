@@ -1,7 +1,21 @@
 @import "tailwindcss";
 @import "./roast-theme.css";
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; zoom: 0.5; }
+
+/* Viewport limits must account for the root's 50% visual scale. */
+html .bl-auth-dialog,
+html .centered-notice {
+  max-height: calc(200svh - 64px);
+  max-width: calc(200vw - 64px);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+html .bl-auth-dialog { width: min(740px, calc(200vw - 64px)); }
+html .centered-notice { width: min(600px, calc(200vw - 64px)); }
+html .admin-edit-dialog { width: min(760px, calc(200vw - 64px)); }
+html .purchase-dialog { width: min(740px, calc(200vw - 64px)); }
 
 body {
   margin: 0;

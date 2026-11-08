@@ -5,11 +5,12 @@ import Link from "next/link";
 import type { Product } from "../../types/product";
 import { formatPrice } from "../../lib/format-price";
 import { ProductImage } from "./product-image";
+import { getFeaturedProducts } from "../../lib/featured-products";
 
-const INTERVAL_MS = 4000;
+const INTERVAL_MS = 3000;
 
 export function FeatureSlider({ products }: { products: Product[] }) {
-  const slides = products.filter((product) => product.isAvailable).slice(0, 5);
+  const slides = getFeaturedProducts(products);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const current = slides[index] ?? slides[0];

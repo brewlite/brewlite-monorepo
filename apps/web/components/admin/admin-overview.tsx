@@ -32,7 +32,7 @@ function Icon({ name }: { name: string }) {
   };
   return <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.grid}</svg>;
 }
-export function AdminOverview({ data, products, sizes, orders, now, onNavigate }: { data: OverviewData; products: OverviewProduct[]; sizes: OverviewSize[]; orders: Order[]; now: number; onNavigate: (key: string) => void }) {
+export function AdminOverview({ data, products, sizes, orders, now, onNavigate, mode }: { data: OverviewData; products: OverviewProduct[]; sizes: OverviewSize[]; orders: Order[]; now: number; onNavigate: (key: string) => void; mode?: "summary" | "statistics" }) {
   const activeProducts = products.filter((product) => product.isAvailable && product.category?.isActive !== false);
   const activeIds = new Set(activeProducts.map((product) => product.id));
   const activeSizes = sizes.filter((size) => size.isAvailable && activeIds.has(size.productId));
@@ -50,14 +50,14 @@ export function AdminOverview({ data, products, sizes, orders, now, onNavigate }
       <article><p>Doanh thu thử nghiệm</p><strong>{formatPrice(data.simulatedRevenue)}đ</strong><span>Tổng cộng, không phải tiền thật</span></article>
       <article><p>Sản phẩm đang bán</p><strong>{activeProducts.length}</strong><span>{products.length - activeProducts.length} món đang ẩn hoặc thuộc danh mục ngừng bán</span></article>
     </div>
-    <section className="admin-attention" aria-label="Cần xử lý"><header><h2>Cần xử lý</h2><span>{alerts.length}</span></header>
+    {mode !== "statistics" && <section className="admin-attention" aria-label="Cần xử lý"><header><h2>Cần xử lý</h2><span>{alerts.length}</span></header>
       {!alerts.length && <p className="admin-no-alerts">Chưa có cảnh báo cần xử lý trong dữ liệu hiện tại.</p>}
       {alerts.map((alert, index) => <div className="admin-alert-row" key={`${alert.key}-${index}`}><span className="admin-alert-symbol" aria-hidden="true">!</span><p>{alert.text}</p><button onClick={() => onNavigate(alert.key)}>{alert.action}</button></div>)}
-    </section>
-    <details className="admin-statistics"><summary><Icon name="chart" /><span><strong>Thống kê chi tiết</strong><small>Xem số liệu tổng quan từ dữ liệu hiện có.</small></span><span className="admin-chevron" aria-hidden="true">›</span></summary>
+    </section>}
+    {mode !== "summary" && <details className="admin-statistics" open={mode === "statistics"}><summary><Icon name="chart" /><span><strong>Thống kê chi tiết</strong><small>Xem số liệu tổng quan từ dữ liệu hiện có.</small></span><span className="admin-chevron" aria-hidden="true">›</span></summary>
       <dl><div><dt>Tổng số sản phẩm</dt><dd>{products.length}</dd></div><div><dt>Tổng số Size</dt><dd>{sizes.length}</dd></div><div><dt>Size của món đang bán chưa nhập tồn</dt><dd>{uninitialized.length}</dd></div><div><dt>Đơn gần nhất được kiểm tra</dt><dd>{orders.length}</dd></div></dl>
       <p>Thống kê đơn và doanh thu là tổng tích lũy. Chưa hiển thị tăng trưởng theo ngày hoặc dự báo.</p>
-    </details>
-    {sections.map((section) => <section className="admin-function-group" key={section.title}><h2>{section.title}</h2><div className="admin-function-grid">{section.entries.map((entry) => <button className="admin-function-card" key={entry.key} onClick={() => onNavigate(entry.key)}><span className="admin-function-icon"><Icon name={entry.icon} /></span><span className="admin-function-copy"><strong>{entry.title}</strong><small>{entry.description}</small></span><span className="admin-chevron" aria-hidden="true">›</span></button>)}</div></section>)}
+    </details>}
+    {!mode && sections.map((section) => <section className="admin-function-group" key={section.title}><h2>{section.title}</h2><div className="admin-function-grid">{section.entries.map((entry) => <button className="admin-function-card" key={entry.key} onClick={() => onNavigate(entry.key)}><span className="admin-function-icon"><Icon name={entry.icon} /></span><span className="admin-function-copy"><strong>{entry.title}</strong><small>{entry.description}</small></span><span className="admin-chevron" aria-hidden="true">›</span></button>)}</div></section>)}
   </div>;
 }

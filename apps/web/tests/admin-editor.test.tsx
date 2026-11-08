@@ -21,11 +21,11 @@ it('labels product names correctly, searches without accents and opens the selec
   fireEvent.click(await screen.findByRole('button', { name: /Sản phẩm/ }));
   expect(await screen.findByRole('columnheader', { name: 'Tên sản phẩm' })).toBeDefined();
   expect(screen.queryByRole('columnheader', { name: 'Tên / Email' })).toBeNull();
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Tìm kiếm sản phẩm' }), { target: { value: 'tra dau' } });
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Tìm sản phẩm' }), { target: { value: 'tra dau' } });
   expect(screen.queryByRole('cell', { name: 'Cà phê' })).toBeNull();
   const row = screen.getByRole('cell', { name: 'Trà Dâu' }).closest('tr')!;
   expect(within(row).getByText('35.000đ')).toBeDefined();
-  fireEvent.click(within(row).getByRole('button', { name: 'Sửa' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Sửa Trà Dâu' }));
   const modal = await screen.findByRole('dialog', { name: 'Sửa sản phẩm' });
   expect((within(modal).getByLabelText('Tên sản phẩm') as HTMLInputElement).value).toBe('Trà Dâu');
   fireEvent.click(within(modal).getByRole('button', { name: 'Lưu' }));

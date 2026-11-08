@@ -5,9 +5,12 @@ import { allowedOrigins } from './auth/auth.config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { productImageDirectory } from './commerce/product-image.controller';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useStaticAssets(productImageDirectory, { prefix: '/api/product-images/', dotfiles: 'deny', index: false, setHeaders: (response) => { response.setHeader('X-Content-Type-Options', 'nosniff'); } });
 
   // Cho phép Frontend (Next.js :3000) gọi API
   app.use(cookieParser());

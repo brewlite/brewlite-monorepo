@@ -23,7 +23,7 @@ describe("feature slider", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByText("Đã thêm vào giỏ hàng")).toBeNull();
 
-    act(() => { vi.advanceTimersByTime(4000); });
+    act(() => { vi.advanceTimersByTime(3000); });
     expect(screen.getByRole("link", { name: "Xem Trà đào" }).getAttribute("href")).toBe("/products/11111111-1111-4111-8111-111111111112");
 
     fireEvent.click(screen.getByRole("button", { name: "Slide trước" }));
@@ -32,7 +32,7 @@ describe("feature slider", () => {
     expect(screen.getByRole("link", { name: "Xem Trà đào" })).toBeDefined();
     expect(screen.queryByRole("link", { name: "Slide sau" })).toBeNull();
 
-    fireEvent.mouseEnter(screen.getByRole("region", { name: "Sản phẩm nổi bật" }));
+    fireEvent.focus(screen.getByRole("button", { name: "Slide sau" }));
     act(() => { vi.advanceTimersByTime(8000); });
     expect(screen.getByRole("link", { name: "Xem Trà đào" })).toBeDefined();
   });

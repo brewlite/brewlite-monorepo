@@ -1,0 +1,14 @@
+# Replace SITE_DOMAIN in deploy/.env.production with a real DNS hostname.
+# Caddy automatically obtains and renews HTTPS certificates when DNS/ports work.
+{$SITE_DOMAIN} {
+    encode zstd gzip
+
+    # Preserve the /api prefix expected by NestJS (do not use handle_path here).
+    handle /api/* {
+        reverse_proxy api:3001
+    }
+
+    handle {
+        reverse_proxy web:3000
+    }
+}

@@ -112,7 +112,7 @@ function AccountMenu() {
               {user.role === "ADMIN" && <Link href="/admin" role="menuitem">Quản trị</Link>}
               <button type="button" role="menuitem" disabled={loggingOut} onClick={async () => {
                 setLoggingOut(true); setAuthMessage("");
-                try { await logout(); setAuthUser(null); setHover(false); setPinned(false); }
+                try { await logout(); setAuthUser(null); setHover(false); setPinned(false); window.location.replace('/'); }
                 catch (error) { setAuthMessage(authError(error)); }
                 finally { setLoggingOut(false); }
               }}>Đăng xuất</button>
