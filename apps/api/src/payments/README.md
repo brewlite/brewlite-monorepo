@@ -1,67 +1,55 @@
-# Payments — tiến độ backend
+# Thanh toán và đơn hàng — Backend Task 5.1 (dấu chấm 5–6)
 
-Nhánh: `feature/payment-order-status`. Đây là phần service đang phát triển,
-chưa phải chức năng thanh toán hoàn chỉnh qua HTTP.
+## Đã triển khai
 
-## Đã có
+- POST /api/payments: WALLET/CARD mô phỏng, lấy tiền từ DB, trả payment + xác nhận đơn.
+- JWT access guard HS256: sub, exp, tokenUse=access; role lấy từ database.
+- Kiểm tra chủ đơn, trạng thái và số tiền; idempotency và retry transaction Serializable.
+- Thành công: payment + PAID + audit + notification atomic; thất bại giữ PENDING_PAYMENT.
+- GET /api/orders, GET /api/orders/:id: history/filter/pagination và snapshot, timeline.
+- GET /api/staff/orders, GET /api/staff/orders/:id: chỉ STAFF/MANAGER, đơn đã thanh toán.
+- PATCH /api/staff/orders/:id/status: PAID→PREPARING→READY→COMPLETED.
+- Optimistic concurrency bằng expectedStatus; replay không tạo notification/audit trùng.
+- Migration additive order_status_events và index phục vụ truy vấn.
+- Workflow CI riêng có PostgreSQL và kiểm thử HTTP/JWT thực.
 
-- DTO: orderId, method (WALLET/CARD), idempotencyKey.
-- Kiểm tra chủ đơn và trạng thái PENDING_PAYMENT; lấy số tiền từ database.
-- MockPaymentService hỗ trợ SUCCESS (mặc định) hoặc FAILED qua PAYMENT_MOCK_RESULT.
-- Thành công: ghi payment SUCCESS, chuyển đơn PAID, lưu notification trong transaction.
-- Thất bại: ghi payment FAILED, giữ đơn PENDING_PAYMENT.
-- Gửi lại cùng key trả giao dịch cũ; lần thử thanh toán mới phải dùng key mới.
-- Transaction Serializable và retry cho xung đột; chỉ áp dụng cho cổng giả lập local,
-  không đặt cuộc gọi thanh toán tiền thật trong vòng retry này.
-- 5 unit test thanh toán và 5 integration test service/PostgreSQL.
+Hợp đồng API, ví dụ request/response và bàn giao:
+[docs/payment-orders-api.md](../../../../docs/payment-orders-api.md).
 
-## Chưa có / cần phối hợp
+## Kiểm chứng thực tế — 2026-11-08
 
-- PaymentsController còn trống: chưa có route HTTP thanh toán.
-- Chưa nối JWT/guard và userId xác thực từ phần đăng nhập của Quang.
-- Không được coi việc kiểm tra userId trong service là xác thực JWT.
-- Chưa có API lịch sử/chi tiết đơn hoặc cập nhật trạng thái dành cho nhân viên.
-- Chưa tích hợp frontend, kiểm thử HTTP/JWT hoặc E2E toàn hệ thống.
-- Chưa thay đổi schema/migration của nhóm.
+- Lint: đạt, không có cảnh báo mới.
+- Backend unit tests: 18/18 đạt (bao gồm 5 unit test payment).
+- Integration payment/service DB + HTTP/JWT: 21/21 đạt.
+- Build đầy đủ `npm run build`: đạt (Prisma generate + Nest build).
+- Migration mới đã chạy trên DB test local và DB phát triển local.
+- Không chạy/reset/seed DB production.
+- Workflow mới chưa push/chạy trên GitHub; kết quả ở trên là local.
 
-## Chạy kiểm tra (PowerShell, từ apps/api)
+Integration bao gồm payment success/fail/retry, idempotency đồng thời, sai chủ đơn,
+token sai/hết hạn/refresh, role giả, issuer/audience, pagination, snapshot không đổi,
+staff transitions/retry/concurrency, rollback payment và status khi notification lỗi.
+Test fixture tạo đơn trực tiếp: chưa phải E2E của toàn website.
 
-Dùng Node 24 và PostgreSQL đã cài. Cài dependency bằng `npm.cmd ci`.
+## Phụ thuộc tích hợp
 
+- Auth đồng đội: cấp JWT đúng hợp đồng hoặc dùng guard chung tương đương.
+- Orders/create đồng đội: tạo đơn PENDING_PAYMENT có owner, snapshot và amount đúng.
+- Frontend: nối API; giữ key khi retry mạng; xử lý payment.status và 409.
+- Chưa triển khai checkout tạo đơn, Auth/login/register, frontend, production deployment.
+- Loyalty/coupon/inventory reservation, expiry/cancel/UNKNOWN reconciliation là phạm vi
+  cần nhóm thống nhất thêm; module này không tự nhận là đã đáp ứng toàn bộ SRS mở rộng.
+
+## Chạy kiểm tra
+
+Từ apps/api:
 ```powershell
-npm.cmd run lint
-npm.cmd test -- --runInBand
-npm.cmd run build
+npm run lint
+npm test -- --runInBand
+npm run build
+node --env-file=.env.test --experimental-vm-modules node_modules/jest/bin/jest.js --config test/jest-e2e.json --runInBand --runTestsByPath test/payments-db.e2e-spec.ts test/payment-orders-http.e2e-spec.ts
 ```
 
-Build cần DATABASE_URL hợp lệ trong .env. Dùng cấu hình local riêng;
-không commit .env hoặc .env.test.
-
-## Integration test với database riêng
-
-1. Tạo database `brewlite_payment_test`, owner là tài khoản PostgreSQL local của bạn.
-2. Tạo apps/api/.env.test với DATABASE_URL trỏ đúng database này,
-   host 127.0.0.1 hoặc localhost và cổng PostgreSQL của bạn.
-   URL mẫu (thay user/password/port bằng giá trị của bạn; mã hóa ký tự đặc biệt trong mật khẩu):
-   `postgresql://YOUR_USER:YOUR_PASSWORD@127.0.0.1:5432/brewlite_payment_test?schema=public`
-3. Đặt PAYMENT_MOCK_RESULT=SUCCESS trong .env.test (hoặc bỏ biến để dùng mặc định).
-4. Không để DATABASE_URL/PAYMENT_MOCK_RESULT cũ trong environment của terminal ghi đè file.
-5. Chạy:
-
-```powershell
-node --env-file=.env.test node_modules/prisma/build/index.js migrate deploy
-node --env-file=.env.test --experimental-vm-modules node_modules/jest/bin/jest.js --config test/jest-e2e.json --runInBand --runTestsByPath test/payments-db.e2e-spec.ts
-```
-
-Không cần seed hoặc bật HTTP server. Test tự tạo user/order và dọn đúng các ID đó.
-Đây là integration test service/database dù dùng hậu tố e2e-spec để khớp cấu hình Jest.
-Các tình huống: Wallet, Card, gửi lại cùng key, đồng thời cùng key, thất bại rồi thử lại.
-Chưa kiểm chứng mọi trường hợp cạnh tranh hoặc rollback do lỗi giữa transaction.
-
-## Kết quả kiểm tra ngày 2026-11-07
-
-- Backend lint: đạt.
-- Backend unit tests: 18/18 đạt.
-- Backend build: đạt.
-- Payment database integration tests: 5/5 đạt trên database local riêng.
-- Workflow CI hiện tại chưa tự chạy bài integration PostgreSQL này.
+Integration chỉ cho phép DB local tên brewlite_payment_test. Không dùng DB thật để test.
+Để chạy bản build và nạp .env rõ ràng: `node --env-file=.env dist/main.js`.
+Không commit .env/.env.test hoặc JWT thật.

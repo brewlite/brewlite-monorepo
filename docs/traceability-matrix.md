@@ -85,3 +85,23 @@
 | E4/A4 hết hàng | FR-15/16 | TC-08/INT-05 | 409, không tạo payable order |
 | E5/A5 payment failed | FR-17/19/20/32 | TC-11/12/INT-10 | Retry hoặc cancel/release an toàn |
 | Timeout/UNKNOWN bổ sung | FR-20/32 | INT-10 | Reconcile, không kết luận sai/nhân đôi |
+
+## Cập nhật triển khai backend payment/orders — 2026-11-08
+
+Bảng baseline phía trên còn các trạng thái Planned cũ. Phần cập nhật này ghi bằng chứng
+cho Task 5.1 dấu chấm 5–6, không tự đánh dấu hoàn thành toàn bộ FR/NFR mở rộng.
+
+| Phạm vi | Code/evidence mới | Kết luận |
+|---|---|---|
+| FR-17, phần mock wallet/card | apps/api/src/payments/payments.controller.ts; payments.service.ts | Có HTTP endpoint, DTO, JWT; chưa có UI/UNKNOWN |
+| FR-18, xác nhận PAID | payment service + OrderStatusEvent migration | Atomic payment/order/audit/notification; chưa consume reservation/coupon/points theo SRS |
+| FR-19/20, retry/idempotency payment | payment service + test/payment-orders-http.e2e-spec.ts | Pass same-key/concurrency/fail/retry; không bao gồm cancel/TTL hoặc idempotency tạo đơn |
+| FR-21/22 | apps/api/src/orders/orders.controller.ts; orders.service.ts | Có API chi tiết/lịch sử theo owner, phân trang, snapshot và timeline |
+| FR-23 | staff-orders.controller.ts; orders.service.ts | Có API STAFF/MANAGER, chuyển tuần tự, actor audit, chống ghi lặp |
+| FR-10, phạm vi payment/orders | apps/api/src/access/access.guard.ts | JWT/access claims + DB role + ownership; chưa đại diện Auth/logout/revocation toàn hệ thống |
+| FR-24, phần dữ liệu | notification trong transaction và GET order detail | Có dữ liệu thông báo/trạng thái; frontend/push chưa triển khai |
+| Task 5.2, test backend phần phụ trách | test/payments-db.e2e-spec.ts + test/payment-orders-http.e2e-spec.ts | 21/21 integration local đạt; không phải E2E menu đến xác nhận |
+| CI của phần phụ trách | .github/workflows/payment-orders.yml | Có cấu hình PostgreSQL + quality gates; chưa chạy trên GitHub |
+
+Toàn backend: 18/18 unit tests, lint và npm run build đạt local.
+Hợp đồng bàn giao và các giới hạn: [payment-orders-api.md](payment-orders-api.md).

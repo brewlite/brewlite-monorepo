@@ -143,6 +143,15 @@ export class PaymentsService {
               },
             });
 
+            await tx.orderStatusEvent.create({
+              data: {
+                orderId: order.id,
+                actorId: userId,
+                fromStatus: OrderStatus.PENDING_PAYMENT,
+                toStatus: OrderStatus.PAID,
+              },
+            });
+
             await tx.notification.create({
               data: {
                 userId,
