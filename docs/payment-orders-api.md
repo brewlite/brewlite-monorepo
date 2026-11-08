@@ -1,3 +1,47 @@
+## Trạng thái sau khi ghép main — 2026-11-08
+
+**Phần này thay thế hợp đồng runtime cũ bên dưới.** Main hiện đã có CommerceModule,
+AuthSession, tồn kho được giữ chỗ, điểm thưởng và OrderStatusHistory. AppModule dùng
+các controller của CommerceModule, không đăng ký đồng thời OrdersModule/PaymentsModule
+cũ vì chúng trùng route và dùng luồng xác thực khác.
+
+- Đăng nhập qua `/api/auth/login`, gửi cookie phiên (`credentials: 'include'`),
+  không dùng Bearer token tự ký của bản cũ. Yêu cầu thay đổi dữ liệu phải có Origin
+  thuộc FRONTEND_ORIGIN. Tài khoản cần active, verified và session còn hiệu lực.
+- `POST /api/payments` vẫn nhận `{ orderId, method: "WALLET" | "CARD", idempotencyKey }`
+  và trả `{ payment, order }` (HTTP 200), nhưng gọi cùng CommerceService với
+  `POST /api/orders/:id/payments`. Hai đường dẫn dùng chung idempotency và settlement.
+- Chỉ thanh toán đơn tạo bởi luồng mới (`isLegacy=false`), còn hạn và có reservation.
+  Không thanh toán trực tiếp đơn seed/legacy để tránh bỏ qua tồn kho và điểm.
+- `GET /api/orders` trả mảng theo hợp đồng main (tối đa 100), không phải object phân trang cũ.
+  `GET /api/orders/:id` trả chi tiết của chủ đơn, timeline nằm ở `history`.
+- `GET /api/staff/orders` và `GET /api/staff/orders/:id`: STAFF/ADMIN.
+  `PATCH /api/staff/orders/:id/status`: chỉ STAFF, body
+  `{ nextStatus, expectedVersion }`, header `Idempotency-Key`. Quyền MANAGER và
+  body `expectedStatus` của bản cũ không áp dụng trên app chung.
+- Các cập nhật dùng OrderStatusHistory của main. Bảng OrderStatusEvent/migration cũ
+  giữ nguyên để bảo toàn dữ liệu và kiểm thử, không phải timeline runtime mới.
+- Bật mock trong môi trường phát triển bằng `ENABLE_MOCK_PAYMENTS=true` và
+  `MOCK_PAYMENT_OUTCOME=SUCCESS` hoặc FAILED. VNPay của main được giữ nguyên;
+  bài test mock không chứng nhận kết nối VNPay thật.
+
+Kiểm tra từ `apps/api` trên database local riêng `brewlite_payment_test`:
+
+```powershell
+npm.cmd ci
+npm.cmd run build
+npm.cmd test -- --runInBand
+node --env-file=.env.test scripts/run-payment-orders-tests.cjs
+```
+
+Runner áp dụng migrations vào DB test, kiểm tra các module legacy riêng biệt, sau đó
+kiểm tra **AppModule thật** bằng login/cookie trong schema mới `brewlite_auth_test_payment_*`.
+Không reset/seed database sử dụng hằng ngày. Schema test được giữ lại để kiểm tra.
+Khi chạy app chung trên máy thành viên, sao chép cấu hình riêng từ `.env.example`,
+cài dependencies và chạy `npx prisma migrate deploy` trước khi khởi động.
+
+## Hợp đồng trước khi ghép (tham khảo lịch sử, không dùng để tích hợp frontend)
+
 # Backend bàn giao: Thanh toán, xác nhận và trạng thái/lịch sử đơn
 
 Phạm vi: Assignment 2 Task 5.1, dấu chấm 5–6. Chỉ thanh toán mô phỏng, không thu tiền thật.

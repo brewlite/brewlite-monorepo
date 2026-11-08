@@ -10,12 +10,13 @@ import {
 } from '@prisma/client';
 import { sign } from 'jsonwebtoken';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
+import { PrismaModule } from '../src/prisma/prisma.module';
+import { PaymentsModule } from '../src/payments/payments.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { MockPaymentService } from '../src/payments/mock-payment.service';
 
 const secret = 'test-only-payment-orders-secret-at-least-32-bytes';
-describe('Payment and orders HTTP contract (real PostgreSQL, real JWT guard)', () => {
+describe('Legacy payment/orders modules (isolated contract, not production AppModule)', () => {
   let app: INestApplication;
   let db: PrismaService;
   let gateway: MockPaymentService;
@@ -66,7 +67,7 @@ describe('Payment and orders HTTP contract (real PostgreSQL, real JWT guard)', (
     delete process.env.JWT_ISSUER;
     delete process.env.JWT_AUDIENCE;
     const module = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [PrismaModule, PaymentsModule],
     }).compile();
     app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
