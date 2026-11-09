@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -81,4 +82,19 @@ jobs:
           cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
       - name: Isolated HTTP integration tests
-        run: node scripts/run-integration-tests.cjs
+        run: |
+          node scripts/run-integration-tests.cjs
+          npm run test:p3
+          npm run test:stage2
+  deploy-safety:
+    name: Deployment / backup and rollback safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: bash -n deploy/release.sh
+      - run: node --check deploy/smoke.mjs
+      - run: node --test tests/deploy-release.test.cjs tests/deploy-smoke.test.cjs

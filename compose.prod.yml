@@ -27,7 +27,7 @@ services:
         max-file: "3"
 
   api:
-    image: brewlite-api:prod
+    image: ${API_IMAGE:-brewlite-api:prod}
     restart: unless-stopped
     env_file:
       - ./deploy/.env.production
@@ -37,7 +37,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in deploy/.env.production}
       FRONTEND_ORIGIN: https://${SITE_DOMAIN:?Set SITE_DOMAIN in deploy/.env.production}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in deploy/.env.production}
-      ENABLE_MOCK_PAYMENTS: "false"
+      ENABLE_MOCK_PAYMENTS: ${ENABLE_MOCK_PAYMENTS:-true}
+      MOCK_PAYMENT_OUTCOME: ${MOCK_PAYMENT_OUTCOME:-SUCCESS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,7 +58,7 @@ services:
     logging: *logging
 
   web:
-    image: brewlite-web:prod
+    image: ${WEB_IMAGE:-brewlite-web:prod}
     restart: unless-stopped
     environment:
       NODE_ENV: production

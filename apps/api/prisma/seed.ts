@@ -425,7 +425,7 @@ async function main() {
       data: {
         orderCode: 'ORD-20261104-003',
         userId: customerUser.id,
-        status: OrderStatus.PENDING_PAYMENT,
+        status: OrderStatus.PENDING,
         subtotal: 29000,
         discountAmount: 0,
         pointsUsed: 0,

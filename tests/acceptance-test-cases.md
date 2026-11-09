@@ -16,12 +16,12 @@
 | TC-07 | Subtotal 100.000, coupon 10%, balance 120 điểm | Dùng 100 điểm; thử 200 điểm | Thanh toán 80.000; 200 điểm bị từ chối (vượt balance/cap); sau fail số điểm không trừ |
 | TC-08 | SKU còn 0 / 1; hai giỏ cùng đặt | Đặt SKU hết; sau đó cho 2 khách tạo đơn đồng thời với 1 SKU cuối | Hết hàng 409 và không tạo payable order; đồng thời chỉ 1 thành công |
 | TC-09 | Customer auth, 1 giỏ hợp lệ, Idempotency-Key K1 | POST order 2 lần K1 cùng payload, rồi K1 khác payload | Một order duy nhất cho payload giống; khác payload 409; đã giữ chỗ đúng 1 lần |
-| TC-10 | PENDING_PAYMENT có reservation SKU 2, coupon, 100 điểm | Mock SUCCESS gửi callback lặp 2 lần | Một `PAID`, quantity sold 2, điểm/coupon consume một lần, khách nhận mã đơn |
-| TC-11 | PENDING_PAYMENT | Mock wallet SUCCESS; mock card FAILED; mock network UNKNOWN | Trả đúng attempt status; không dùng thẻ tiền thật; UNKNOWN hiển thị “Đang xác minh” |
+| TC-10 | PENDING có reservation SKU 2, coupon, 100 điểm | Mock SUCCESS gửi callback lặp 2 lần | Một `PAID`, quantity sold 2, điểm/coupon consume một lần, khách nhận mã đơn |
+| TC-11 | PENDING | Mock wallet SUCCESS; mock card FAILED; mock network UNKNOWN | Trả đúng attempt status; không dùng thẻ tiền thật; UNKNOWN hiển thị “Đang xác minh” |
 | TC-12 | Pending; payment failed; 3 attempts max; 10m TTL | Retry với key mới, hủy; hết TTL trên order khác | Không tạo order khác; >3 attempts từ chối; cancel/expiry release một lần; không trừ code/point |
 | TC-13 | 2 customer có order riêng | Xem kết quả, history, filter bằng token A vào order B | Khách A thấy mã/trạng thái của A, không thấy bất kỳ order B |
-| TC-16 | Có STAFF, đơn PAID và đơn PENDING_PAYMENT | STAFF xem queue và cập nhật PAID→PREPARING→READY→COMPLETED; thử nhảy trạng thái | Không hiện PENDING; chuyển tuần tự được; nhảy/lùi 409; khách đọc được status mới |
-| TC-17 | Order PAID 80.000, chưa hoàn thành | Mark COMPLETED 2 lần | Được cộng 8 điểm **một lần**; order cancelled không cộng |
+| TC-16 | Có STAFF, đơn PAID và đơn PENDING | STAFF xem queue và cập nhật PAID→PREPARING→READY→COMPLETED; thử nhảy trạng thái | Không hiện PENDING; chuyển tuần tự được; nhảy/lùi 409; khách đọc được status mới |
+| TC-17 | Order PENDING 80.000, chưa thanh toán | Settlement SUCCESS lặp, sau đó COMPLETED | Được cộng 8 điểm **một lần**; order cancelled không cộng |
 | TC-18 | OWNER/STAFF/CUSTOMER | OWNER tạo/sửa/ẩn sản phẩm, promo, user; CUSTOMER/STAFF truy cập các route này | OWNER thành công; role khác 403; history order không đổi giá cũ |
 
 ## B. Integration / Reliability
@@ -66,3 +66,19 @@
 | PERF-01 | *Chưa chạy* | p95 ≤ 2s | — | Planned | — | — |
 
 **Không ký biên bản “đạt” khi chưa có Actual/Evidence.** Các TC/INT/SEC có thể chuyển thành Jest/Supertest/Playwright/k6 theo Sprint 1–2.
+
+
+## Assignment alignment — 2026-11-09
+
+Assignment 1 là tiêu chí cụ thể cho MVP kế thừa bởi Assignment 2. Tạo đơn PENDING; thanh toán thất bại đã xác minh chuyển PAYMENT_FAILED và giữ giỏ/reservation trong TTL. Retry hợp lệ chuyển PENDING, thành công chuyển PAID. UNKNOWN không được coi là FAILED, không retry khi chưa xác minh. EARN ghi đúng một lần tại PAID, không cộng thêm ở COMPLETED. Giỏ chỉ được dọn sau SUCCESS và chỉ khi version còn khớp snapshot checkout; thay đổi mới của khách được giữ nguyên. Header có badge số lượng. API bổ sung GET /api/orders/me và POST /api/payments {orderId, method}; các route hiện hữu vẫn hoạt động.
+
+
+## Hủy PAID và hoàn tiền mô phỏng — 2026-11-09
+
+Theo nhánh PAID -> CANCELLED của Assignment 1, CUSTOMER được hủy đơn của mình trước PREPARING. POST /api/orders/:id/cancel nhận {expectedVersion} và Idempotency-Key; version bắt buộc cho PAID. PENDING/PAYMENT_FAILED tiếp tục release HELD; chặn attempt PENDING/UNKNOWN. PREPARING/READY/COMPLETED không hủy.
+
+Mock full refund thực hiện trong một transaction serializable, khóa Order dùng chung với STAFF nhận pha chế: Refund(provider=MOCK,status=SUCCESS,amount=Payment.amount), Order CANCELLED và history actor/version; Payment gốc vẫn SUCCESS. Một Refund duy nhất cho mỗi Payment và khóa idempotency ngăn hoàn trùng. Hoàn onHand theo snapshot quantity, không sửa reserved lần nữa; reservation CONSUMED được giữ làm lịch sử tiêu thụ gốc. Coupon usedCount giảm một lần, không âm, không bật lại mã. REFUND hoàn đúng điểm REDEEM; EARN_REVERSAL thu hồi đúng EARN ledger, không tính lại bằng giá hiện tại.
+
+Nếu thiếu ledger hoặc số dư sau hoàn/thu hồi thấp hơn reservedPoints: lỗi LOYALTY_RECONCILIATION_REQUIRED, không ghi Refund hoặc thay đổi tài nguyên. Không làm điểm âm, không đụng đến điểm đang giữ ở đơn khác. Nếu bước nào lỗi, rollback cả Refund, stock, coupon, ledger và Order. Khách nhận thông báo liên hệ cửa hàng để đối soát.
+
+VNPay bị chặn bằng EXTERNAL_REFUND_UNSUPPORTED, không gửi yêu cầu refund ngoài hệ thống, không giả Refund SUCCESS. Các trạng thái Refund REQUESTED/PENDING/FAILED/UNKNOWN là khả năng mô hình, chưa phải adapter gateway đã triển khai. Hoàn tiền ở đây là mô phỏng, không có tiền thật.

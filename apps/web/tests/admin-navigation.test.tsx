@@ -14,7 +14,7 @@ it("keeps all administration destinations available and marks the active section
   expect(screen.getByRole("link", { name: "← Về cửa hàng" }).getAttribute("href")).toBe("/");
 });
 it("filters actual order statuses and expands snapshots without a mutation action", () => {
-  const order: Order = { id: "one", orderCode: "BL001", status: "CANCELLED", version: 1, finalTotal: "45000", createdAt: "2026-11-08T00:00:00Z", expiresAt: null, items: [{ id: "item", productName: "Cà phê", sizeName: "L", quantity: 1, note: "Ít đá", lineTotal: "45000", toppings: [] }], payments: [], history: [{ toStatus: "PENDING_PAYMENT", createdAt: "2026-11-08T00:00:00Z" }, { toStatus: "CANCELLED", createdAt: "2026-11-08T00:01:00Z" }] };
+  const order: Order = { id: "one", orderCode: "BL001", status: "CANCELLED", version: 1, finalTotal: "45000", createdAt: "2026-11-08T00:00:00Z", expiresAt: null, items: [{ id: "item", productName: "Cà phê", sizeName: "L", quantity: 1, note: "Ít đá", lineTotal: "45000", toppings: [] }], payments: [], history: [{ toStatus: "PENDING", createdAt: "2026-11-08T00:00:00Z" }, { toStatus: "CANCELLED", createdAt: "2026-11-08T00:01:00Z" }] };
   render(<OrderMonitor orders={[order]} />);
   fireEvent.click(screen.getByRole("button", { name: "Chi tiết đơn BL001" }));
   expect(screen.getByText("Ít đá")).toBeDefined();

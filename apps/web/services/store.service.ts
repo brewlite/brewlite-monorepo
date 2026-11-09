@@ -6,6 +6,9 @@ export type Order = {
   status: string;
   version: number;
   finalTotal: string;
+  subtotal?: string;
+  discountAmount?: string;
+  pointsDiscount?: string;
   createdAt: string;
   expiresAt: string | null;
   items: {
@@ -17,7 +20,7 @@ export type Order = {
     lineTotal: string;
     toppings: { toppingName: string; price: string }[];
   }[];
-  payments: { id: string; status: string; method: string; amount: string; providerPaymentId?: string | null }[];
+  payments: { id: string; status: string; method: string; amount: string; createdAt?: string; attemptNumber?: number | null; providerPaymentId?: string | null; refund?: { id: string; provider: string; status: "REQUESTED" | "PENDING" | "SUCCESS" | "FAILED" | "UNKNOWN"; amount: string; resolvedAt: string | null } | null }[];
   history: { toStatus: string; createdAt: string }[];
 };
 export async function getStore<T>(path: string) {

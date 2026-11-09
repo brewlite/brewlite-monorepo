@@ -1,0 +1,28 @@
+/* Shared text scale. Keep layout zoom and page gutters unchanged. */
+:root{--text-caption:15px;--text-small:16px;--text-body:18px;--text-action:17px;--text-title:32px;--text-section:22px}
+html{font-size:18px}
+body{font-size:24px}
+.site-header .shop-nav .nav-link,.site-header .shop-nav .nav-tool,.site-header .shop-nav .header-search-inline input{font-size:clamp(24px,1.6vw,34px);line-height:1.35}
+.site-header .shop-nav .navbar-brand{font-size:clamp(30px,2vw,42px)}
+.site-header .shop-nav .header-search-inline{width:clamp(220px,15vw,340px);flex-shrink:1;min-width:150px}
+.site-header .shop-nav{gap:20px}
+.bean-card .bean-name{font-size:30px;line-height:1.4}.bean-card .bean-price{font-size:32px}.menu-preview .menu-preview-name{font-size:clamp(20px,1.3vw,28px)}
+.customer-orders .co-heading h1{font-size:var(--text-title)}
+.customer-orders .co-heading p,.customer-orders .co-day h2,.customer-orders .co-row-main small,.customer-orders .co-order-meta small,.customer-orders .co-items small,.customer-orders .co-timeline small,.customer-orders .co-method-card small{font-size:var(--text-caption);line-height:1.6}
+.customer-orders .co-row-main strong,.customer-orders .co-price,.customer-orders .co-items li,.customer-orders .co-order-meta h2,.customer-orders .co-timeline li,.customer-orders .co-payment dl>div,.customer-orders .co-method-card strong{font-size:var(--text-body);line-height:1.5}
+.customer-orders .co-badge,.customer-orders .co-payment-status{font-size:14px;line-height:1.4}
+.customer-orders .co-filters button,.customer-orders .co-back,.customer-orders .co-pay-link,.customer-orders .co-payment-actions button,.customer-orders .co-menu-link,.customer-orders .co-result-link{font-size:var(--text-action);line-height:1.4}
+.customer-orders .co-order-info h3{font-size:var(--text-small)}
+.customer-orders .co-payment h2{font-size:var(--text-section)}
+.customer-orders .co-notice{font-size:var(--text-small)}
+.customer-orders .co-total dd{font-size:30px}
+.account-page .account-layout h2{font-size:var(--text-section)}
+.account-page .account-identity strong,.account-page .account-notice-text h3,.account-page .account-transactions li{font-size:var(--text-body);line-height:1.5}
+.account-page .account-identity small,.account-page .account-balances dt,.account-page .account-notice-text p,.account-page .account-points-empty,.account-page .account-transactions small{font-size:var(--text-caption);line-height:1.5}
+.account-page .account-layout button,.account-page .account-order-link,.account-page .account-point-total{font-size:var(--text-small);line-height:1.5}
+.account-page .account-new-count{font-size:14px}.account-page .account-balances dd{font-size:22px}
+.payment-outcome .po-card h1{font-size:28px}.payment-outcome .po-subtitle,.payment-outcome .po-summary>div,.payment-outcome .po-card>p:not(.po-subtitle){font-size:var(--text-small);line-height:1.6}
+.payment-outcome .po-actions a,.payment-outcome .po-card>button{font-size:var(--text-action);line-height:1.5}
+.purchase-panel label,.purchase-panel input,.purchase-panel select{font-size:24px;line-height:1.5}
+@media(max-width:1100px){.site-header .shop-nav{gap:12px}.site-header .shop-nav .nav-link,.site-header .shop-nav .nav-tool,.site-header .shop-nav .header-search-inline input{font-size:24px}.site-header .shop-nav .header-search-inline{width:230px;min-width:120px}}
+@media(max-width:767px){.site-header .shop-nav .header-search-inline{width:100%;min-width:0}.customer-orders .co-row{gap:12px}.customer-orders .co-row-main{flex-basis:60%}.customer-orders .co-row .co-badge{white-space:normal}.customer-orders .co-back{white-space:normal}.account-page .account-notices>header{flex-wrap:wrap}.account-page .account-notice{flex-wrap:wrap}.account-page .account-notice-text{flex-basis:65%}.payment-outcome .po-summary>div{gap:10px}.payment-outcome .po-card h1{font-size:26px}}

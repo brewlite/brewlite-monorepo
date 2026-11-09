@@ -93,3 +93,35 @@ Phân loại: **CODE** = đã thấy source, chưa tự kết luận toàn bộ 
 `tests/acceptance-test-cases.md` vẫn là test design bản cũ (phone/OWNER/set-password); P0 không sửa file ngoài docs. P1/P9 phải cập nhật test scenarios cho email/bcrypt/refresh/STAFF-only và ghi evidence thật. FR/NFR IDs giữ nguyên; không xóa tests cũ để che thay đổi. UML export/nguồn thiếu ghi trong [checklist](architecture/uml-update-checklist.md).
 
 Pending: CR-SEC-01 (Backend/QA/Product), mapping ADMIN, phân bổ Size stock, dữ liệu CartItem legacy. Không có PR/SHA/CI link nào được tự gán vào các gates này.
+
+## Assignment alignment — 2026-11-09 (supersedes affected P0 rows)
+
+| Yêu cầu | Hiện thực | Bằng chứng |
+|---|---|---|
+| A1 Task 5 | Header badge từ CartProvider | logout-navigation/header-account tests |
+| A1 Task 6/8 | Order PENDING, PAYMENT_FAILED; giữ giỏ khi FAILED; retry | stage2-checkout HTTP integration |
+| A1 Task 9 | GET /api/orders/me; endpoint cũ vẫn giữ | stage2 ownership/alias integration |
+| A1 Task 8/10 | POST /api/payments; JWT, validation, idempotency | stage2 alias/replay/ownership integration |
+| A1 Task 10 / FR-33 | EARN tại PAID, không cộng lại tại COMPLETED | commerce integration + stage2 duplicate settlement |
+
+Không thay thế minh chứng CD/release/Scrum/UML; các mục đó vẫn cần nghiệm thu riêng. Không khẳng định GitHub CI mới đã chạy khi chưa commit/push.
+
+
+## Delivery preparation — 2026-11-09
+
+Task 2/3: [UML source/export index](diagrams/README.md), [ADR-0002](architecture/adr/0002-controlled-ec2-delivery.md). Task 5 CD implementation prepared: [setup and rollback](../deploy/CD-SETUP.md), `.github/workflows/cd.yml`; actual Actions evidence pending. Performance baseline and remaining acceptance gates: [delivery readiness](delivery/readiness.md). PAID cancellation remains explicitly unresolved pending policy confirmation.
+
+
+## PAID mock cancellation — 2026-11-09
+
+| Requirement | Code / API | Evidence |
+|---|---|---|
+| Assignment 1 PAID -> CANCELLED | CommerceService.cancel/refundPaid; expectedVersion + Idempotency-Key | Stage2 full mock refund and replay tests |
+| No double refund | Refund.paymentId unique; order row lock; unique ledger types | concurrent cancellation keys; same-key replay |
+| No preparation/cancel race | transition and cancel lock same Order | actual concurrent HTTP STAFF vs CUSTOMER test |
+| Restore resources | InventoryService.restoreSold, guarded coupon usedCount, REFUND + EARN_REVERSAL | stock/coupon/ledger assertions and injected rollback |
+| Original payment truth | Payment SUCCESS retained; separate Refund SUCCESS | HTTP payment detail + UI refund tests |
+| Unspent-point protection | balance + redeemed - earned >= reservedPoints | spent and reserved-point cases return 409 with no writes |
+| External gateway boundary | VNPay EXTERNAL_REFUND_UNSUPPORTED | signed-success fixture then refusal, zero Refund records |
+
+PAID version is mandatory; unpaid requests without version remain backward compatible. All refund mutations in these tests are on dedicated databases, not operating transactions.

@@ -136,6 +136,12 @@ export class InventoryService {
       throw new ConflictException('Không có đủ tồn đã giữ để giải phóng.');
     return rows[0];
   }
+  async restoreSold(tx: Prisma.TransactionClient, sizeId: string, amount: number) {
+    inventoryAmount(amount);
+    const rows = await tx.$queryRaw<Size[]>`UPDATE sizes SET "onHand"="onHand"+${amount}, version=version+1 WHERE id=${sizeId} AND "onHand" IS NOT NULL AND "onHand"<=${2147483647 - amount} RETURNING *`;
+    if (!rows.length) throw new ConflictException({ code: 'REFUND_RECONCILIATION_REQUIRED', message: 'Không thể hoàn tồn kho tự động. Vui lòng đối soát.' });
+    return rows[0];
+  }
   async setOnHand(
     tx: Prisma.TransactionClient,
     sizeId: string,

@@ -38,7 +38,7 @@ export function AdminOverview({ data, products, sizes, orders, now, onNavigate, 
   const activeSizes = sizes.filter((size) => size.isAvailable && activeIds.has(size.productId));
   const uninitialized = activeSizes.filter((size) => size.onHand === null);
   const low = activeSizes.filter((size) => size.onHand !== null && size.onHand - size.reserved <= 3);
-  const expired = orders.filter((order) => order.status === 'PENDING_PAYMENT' && order.expiresAt && new Date(order.expiresAt).getTime() < now);
+  const expired = orders.filter((order) => order.status === 'PENDING' && order.expiresAt && new Date(order.expiresAt).getTime() < now);
   const alerts = [
     ...(expired.length ? [{ key: 'orders', text: `${expired.length} đơn quá hạn giữ hàng cần kiểm tra trong danh sách đơn gần nhất.`, action: 'Xem đơn' }] : []),
     ...(uninitialized.length ? [{ key: 'sizes', text: `${uninitialized.length} Size của món đang bán chưa nhập tồn kho.`, action: 'Nhập kho' }] : []),

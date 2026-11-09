@@ -5,6 +5,7 @@ import { SiteFrame } from "../../components/layout/site-frame";
 import { getStore, sendStore } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
 import { useAuthUser } from "../../lib/auth-store";
+import './account.css';
 type Loyalty = {
   loyaltyPoints: number;
   availablePoints: number;
@@ -31,6 +32,17 @@ export default function AccountPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [visible, setVisible] = useState(5);
+  const [saving, setSaving] = useState(false);
+  async function markRead(id?: string) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await sendStore(id ? `/account/notifications/${id}/read` : '/account/notifications/read-all', {}, 'patch');
+      setNotices((current) => current.map((n) => !id || n.id === id ? { ...n, isRead: true } : n));
+    } catch (e) { setError(authError(e)); }
+    finally { setSaving(false); }
+  }
   useEffect(() => {
     let active = true;
     Promise.all([
@@ -56,14 +68,9 @@ export default function AccountPage() {
   }, [attempt]);
   return (
     <SiteFrame>
-      <section className="section">
-        <div className="container store-workspace">
-          <h1>Tài khoản</h1>
-          {user && (
-            <p>
-              {user.fullName} · {user.email}
-            </p>
-          )}
+      <section className="section account-page">
+        <div className="container account-layout">
+          <h1 className="visually-hidden">Điểm thưởng và thông báo</h1>
           {loading && <p role="status">Đang tải tài khoản…</p>}
           {error && (
             <p role="alert">
@@ -72,59 +79,48 @@ export default function AccountPage() {
               <Link href="/login">Đăng nhập</Link>
             </p>
           )}
+          <aside className="account-sidebar">
+            {user && <div className="account-card account-identity"><span className="account-avatar" aria-hidden="true">{user.fullName.trim().split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{user.email}</small></div></div>}
           {!error && loyalty && (
-            <>
+            <div className="account-card account-loyalty">
               <h2>Điểm thưởng</h2>
-              <p>
-                {loyalty.loyaltyPoints} điểm · khả dụng{" "}
-                {loyalty.availablePoints} · đang giữ {loyalty.reservedPoints}
-              </p>
+              <p className="account-point-total"><strong>{loyalty.loyaltyPoints}</strong> điểm</p>
+              <dl className="account-balances"><div><dt>Khả dụng</dt><dd>{loyalty.availablePoints}</dd></div><div><dt>Đang giữ</dt><dd>{loyalty.reservedPoints}</dd></div></dl>
               {!loyalty.transactions.length && (
-                <p>Chưa có giao dịch điểm từ đơn hàng mới.</p>
+                <div className="account-points-empty"><span aria-hidden="true">☆</span><p>Chưa có giao dịch điểm từ đơn hàng mới.</p></div>
               )}
-              <ul>
+              <ul className="account-transactions">
                 {loyalty.transactions.map((t) => (
                   <li key={t.id}>
-                    {new Date(t.createdAt).toLocaleString("vi-VN")} · {t.type} ·{" "}
-                    {t.points > 0 ? "+" : ""}
-                    {t.points} điểm · Số dư {t.balanceAfter}
+                    <span>{({ EARN: 'Tích điểm', REDEEM: 'Dùng điểm', REFUND: 'Hoàn điểm', EARN_REVERSAL: 'Thu hồi điểm từ đơn đã hủy' } as Record<string, string>)[t.type] ?? t.type}<small>{new Date(t.createdAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</small></span><strong>{t.points > 0 ? '+' : ''}{t.points}<small>Số dư {t.balanceAfter}</small></strong>
                   </li>
                 ))}
               </ul>
-            </>
+            </div>
           )}
+          </aside>
           {!loading && !error && (
-            <>
-              <h2>Thông báo</h2>
-              {!notices.length && <p>Chưa có thông báo.</p>}
-              {notices.map((n) => (
-                <article className="store-order" key={n.id}>
-                  <h3>{n.title}</h3>
-                  <p>{n.content}</p>
+            <div className="account-card account-notices">
+              <header><h2>Thông báo {notices.some((n) => !n.isRead) && <span className="account-new-count">{notices.filter((n) => !n.isRead).length} mới</span>}</h2><button disabled={saving || !notices.some((n) => !n.isRead)} onClick={() => void markRead()}>Đánh dấu tất cả đã đọc</button></header>
+              {!notices.length && <p className="account-empty">Chưa có thông báo.</p>}
+              {notices.slice(0, visible).map((n) => (
+                <article className={`account-notice ${n.isRead ? '' : 'account-unread'}`} key={n.id}>
+                  <span className="account-notice-icon" aria-hidden="true">✓</span>
+                  <div className="account-notice-text"><h3>{n.title}{!n.isRead && <i aria-label="Chưa đọc"/>}</h3><p>{n.content}</p></div>
                   {n.orderId && (
-                    <Link href={`/orders/${n.orderId}`}>Xem đơn hàng</Link>
+                    <Link className="account-order-link" href={`/orders/${n.orderId}`}>Xem đơn hàng</Link>
                   )}
                   {!n.isRead && (
                     <button
-                      onClick={async () => {
-                        try {
-                          await sendStore(
-                            `/account/notifications/${n.id}/read`,
-                            {},
-                            "patch",
-                          );
-                          setAttempt((a) => a + 1);
-                        } catch (e) {
-                          setError(authError(e));
-                        }
-                      }}
+                      className="account-read" disabled={saving} onClick={() => void markRead(n.id)}
                     >
                       Đánh dấu đã đọc
                     </button>
                   )}
                 </article>
               ))}
-            </>
+              {visible < notices.length && <button className="account-more" onClick={() => setVisible((count) => count + 5)}>Xem thêm thông báo</button>}
+            </div>
           )}
         </div>
       </section>

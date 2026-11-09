@@ -1,3 +1,4 @@
+import { CreatePaymentDto } from './payment.dto';
 import {
   ConfiguredCartItemDto,
   ConfiguredQuoteDto,
@@ -30,7 +31,7 @@ import { CommerceService } from './commerce.service';
 @Roles('CUSTOMER')
 export class ConfiguredCartController {
   constructor(private readonly service: CommerceService) {}
-  @Get() cart(@Req() r: AuthRequest) {
+  @Get() @Roles('CUSTOMER', 'STAFF') cart(@Req() r: AuthRequest) {
     return this.service.cart(r.principal.user.id);
   }
   @Post('calculate') @HttpCode(200) quote(
@@ -87,7 +88,7 @@ export class ConfiguredCartController {
 @Roles('CUSTOMER')
 export class OrdersController {
   constructor(private readonly service: CommerceService) {}
-  @Get() list(@Req() r: AuthRequest) {
+  @Get(['', 'me']) list(@Req() r: AuthRequest) {
     return this.service.orders(r.principal.user.id);
   }
   @Get(':id') detail(@Req() r: AuthRequest, @Param('id') id: string) {
@@ -103,9 +104,10 @@ export class OrdersController {
   @Post(':id/cancel') @HttpCode(200) cancel(
     @Req() r: AuthRequest,
     @Param('id') id: string,
+    @Body() b: unknown,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.service.cancel(r.principal.user.id, id, key);
+    return this.service.cancel(r.principal.user.id, id, key, b);
   }
   @Post(':id/payments') pay(
     @Req() r: AuthRequest,
@@ -121,6 +123,9 @@ export class OrdersController {
 @Roles('CUSTOMER')
 export class PaymentsController {
   constructor(private readonly service: CommerceService) {}
+  @Post() create(@Req() r: AuthRequest, @Body() b: CreatePaymentDto, @Headers('idempotency-key') key?: string) {
+    return this.service.pay(r.principal.user.id, b.orderId, { method: b.method }, key, r.ip);
+  }
   @Post(':id/reconcile') @HttpCode(200) reconcile(@Req() r: AuthRequest, @Param('id') id: string) {
     return this.service.inquire(r.principal.user.id, id);
   }

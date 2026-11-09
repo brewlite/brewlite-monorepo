@@ -29,7 +29,7 @@ type Input = {
 const D = Prisma.Decimal;
 const orderInclude = {
   items: { include: { toppings: true } },
-  payments: true,
+  payments: { include: { refund: true } },
   history: { orderBy: { orderVersion: 'asc' as const } },
 };
 function fail(code: string, message: string, status = 400): never {
@@ -98,6 +98,7 @@ function json(value: unknown): Prisma.InputJsonValue {
 @Injectable()
 export class CommerceService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
+  private reconciliationRunning = false;
   private readonly inquiries = new Map<string, { at: number; attempts: number }>();
   constructor(
     private readonly db: PrismaService,
@@ -106,9 +107,11 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
   ) {}
   onModuleInit() {
     this.timer = setInterval(() => {
+      if (this.reconciliationRunning) return;
+      this.reconciliationRunning = true;
       void this.reconcile().catch(() => {
         /* retry next sweep; no false payment result */
-      });
+      }).finally(() => { this.reconciliationRunning = false; });
     }, 15000);
     this.timer.unref();
   }
@@ -625,6 +628,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
         const expiresAt = new Date(Date.now() + 600000);
         const order = await tx.order.create({
           data: {
+            checkoutCartSnapshot: { cartId: cart.id, version: cart.version + 1, itemIds: cart.items.map((i) => i.id) },
             orderCode: `BL-${Date.now()}-${randomUUID().slice(0, 8)}`,
             userId,
             isLegacy: false,
@@ -663,7 +667,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
             },
             history: {
               create: {
-                toStatus: 'PENDING_PAYMENT',
+                toStatus: 'PENDING',
                 actorId: userId,
                 orderVersion: 0,
               },
@@ -671,9 +675,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
           },
           include: orderInclude,
         });
-        // Only the purchased cart is cleared, after its immutable snapshot and holds were committed together.
-        for (const item of cart.items)
-          await tx.cartItem.delete({ where: { id: item.id } });
+        // Keep the cart until verified payment succeeds, including after FAILED.
         await tx.cart.update({
           where: { id: cart.id },
           data: { version: { increment: 1 } },
@@ -689,7 +691,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
         ...(all ? {} : { userId }),
         ...(queue ? { status: { in: ['PAID', 'PREPARING', 'READY'] } } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: queue ? 'asc' : 'desc' },
       take: 100,
       include: orderInclude,
     });
@@ -703,12 +705,13 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     return o;
   }
   private async release(tx: Tx, id: string, actorId?: string) {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id=${id} FOR UPDATE`;
     const o = await tx.order.findUniqueOrThrow({
       where: { id },
       include: { items: true, payments: true, reservation: true },
     });
     if (
-      o.status !== 'PENDING_PAYMENT' ||
+      !['PENDING', 'PAYMENT_FAILED'].includes(o.status) ||
       !o.reservation ||
       o.reservation.state !== 'HELD'
     )
@@ -754,11 +757,60 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       include: orderInclude,
     });
   }
-  async cancel(userId: string, id: string, key?: string) {
+  async cancel(userId: string, id: string, key?: string, body: unknown = {}) {
+    const b = record(body);
+    const expectedVersion = b.expectedVersion === undefined ? undefined : integer(b.expectedVersion);
     await this.order(id, userId);
-    return this.idem(userId, 'order.cancel', key, { id }, (tx) =>
-      this.release(tx, id, userId),
-    );
+    return this.idem(userId, 'order.cancel', key, { id, expectedVersion }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id=${id} FOR UPDATE`;
+      const order = await tx.order.findUniqueOrThrow({ where: { id } });
+      if (expectedVersion !== undefined && order.version !== expectedVersion)
+        fail('ORDER_CHANGED', 'Đơn đã thay đổi. Vui lòng tải lại.', 409);
+      if (order.status === 'PAID') {
+        if (expectedVersion === undefined) fail('VERSION_REQUIRED', 'Vui lòng tải lại đơn trước khi hủy.', 409);
+        return this.refundPaid(tx, userId, id);
+      }
+      return this.release(tx, id, userId);
+    });
+  }
+  private async refundPaid(tx: Tx, userId: string, id: string) {
+    const o = await tx.order.findUniqueOrThrow({ where: { id }, include: { items: true, payments: { include: { refund: true } }, reservation: true, transactions: true } });
+    if (o.userId !== userId || o.isLegacy || o.status !== 'PAID' || o.reservation?.state !== 'CONSUMED')
+      fail('INVALID_STATE', 'Chỉ có thể hủy đơn đã thanh toán và chưa pha chế.', 409);
+    if (o.payments.some(p => ['PENDING', 'UNKNOWN'].includes(p.status))) fail('PAYMENT_UNRESOLVED', 'Đang xác minh thanh toán.', 409);
+    const successes = o.payments.filter(p => p.status === 'SUCCESS');
+    if (successes.length !== 1) fail('REFUND_RECONCILIATION_REQUIRED', 'Cần đối soát thanh toán trước khi hủy.', 409);
+    const payment = successes[0];
+    if (payment.providerPaymentId?.startsWith('vnpay:')) fail('EXTERNAL_REFUND_UNSUPPORTED', 'Chưa hỗ trợ hủy và hoàn tiền VNPay trực tuyến. Vui lòng liên hệ cửa hàng.', 409);
+    if (!payment.providerPaymentId || !/^[\da-f-]{36}$/i.test(payment.providerPaymentId) || !payment.amount.equals(o.finalTotal) || payment.refund)
+      fail('REFUND_RECONCILIATION_REQUIRED', 'Cần đối soát thanh toán trước khi hủy.', 409);
+    const earn = o.transactions.find(t => t.type === 'EARN');
+    const redeem = o.transactions.find(t => t.type === 'REDEEM');
+    if (!earn || earn.points < 0 || (redeem ? -redeem.points : 0) !== o.pointsUsed)
+      fail('LOYALTY_RECONCILIATION_REQUIRED', 'Cần đối soát điểm thưởng trước khi hủy. Vui lòng liên hệ cửa hàng.', 409);
+    await tx.$queryRaw`SELECT id FROM users WHERE id=${userId} FOR UPDATE`;
+    const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+    if (user.loyaltyPoints + o.pointsUsed - earn.points < user.reservedPoints)
+      fail('LOYALTY_RECONCILIATION_REQUIRED', 'Điểm tích từ đơn đã được sử dụng hoặc đang giữ. Vui lòng liên hệ cửa hàng để đối soát.', 409);
+    const quantities = new Map<string, number>();
+    for (const item of o.items) {
+      if (!item.sizeId) fail('REFUND_RECONCILIATION_REQUIRED', 'Đơn thiếu cấu hình tồn kho để hoàn trả.', 409);
+      quantities.set(item.sizeId, (quantities.get(item.sizeId) ?? 0) + item.quantity);
+    }
+    for (const [sizeId, quantity] of [...quantities].sort(([a], [b]) => a.localeCompare(b))) await this.inventory.restoreSold(tx, sizeId, quantity);
+    if (o.promotionId) {
+      const restored = await tx.promotion.updateMany({ where: { id: o.promotionId, usedCount: { gte: 1 } }, data: { usedCount: { decrement: 1 } } });
+      if (!restored.count) fail('REFUND_RECONCILIATION_REQUIRED', 'Cần đối soát lượt mã giảm giá.', 409);
+    }
+    if (o.pointsUsed) {
+      const restored = await tx.user.update({ where: { id: userId }, data: { loyaltyPoints: { increment: o.pointsUsed } } });
+      await tx.loyaltyTransaction.create({ data: { userId, orderId: id, type: 'REFUND', points: o.pointsUsed, balanceAfter: restored.loyaltyPoints, role: 'CUSTOMER' } });
+    }
+    const reversed = await tx.user.update({ where: { id: userId }, data: { loyaltyPoints: { decrement: earn.points } } });
+    await tx.loyaltyTransaction.create({ data: { userId, orderId: id, type: 'EARN_REVERSAL', points: -earn.points, balanceAfter: reversed.loyaltyPoints, role: 'CUSTOMER' } });
+    // Internal mock adapter: no money moves outside BrewLite, no client-selected outcome.
+    await tx.refund.create({ data: { paymentId: payment.id, amount: payment.amount, provider: 'MOCK', status: 'SUCCESS', providerRefundId: `mock-refund:${payment.id}`, idempotencyKey: `mock-refund:${payment.id}`, requestedBy: userId, resolvedAt: new Date() } });
+    return tx.order.update({ where: { id }, data: { status: 'CANCELLED', version: { increment: 1 }, history: { create: { fromStatus: 'PAID', toStatus: 'CANCELLED', actorId: userId, orderVersion: o.version + 1 } } }, include: orderInclude });
   }
   async transition(actorId: string, id: string, body: unknown, key?: string) {
     const b = record(body);
@@ -770,6 +822,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       key,
       { id, next, version },
       async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id=${id} FOR UPDATE`;
         const o = await tx.order.findFirst({ where: { id, isLegacy: false } });
         if (!o) fail('NOT_FOUND', 'Không tìm thấy đơn.', 404);
         const steps: Record<string, string> = {
@@ -783,23 +836,6 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
             'Đơn đã đổi hoặc trạng thái không hợp lệ.',
             409,
           );
-        if (next === 'COMPLETED' && o.userId) {
-          const points = o.finalTotal.div(10000).floor().toNumber();
-          const user = await tx.user.update({
-            where: { id: o.userId },
-            data: { loyaltyPoints: { increment: points } },
-          });
-          await tx.loyaltyTransaction.create({
-            data: {
-              userId: o.userId,
-              orderId: id,
-              type: 'EARN',
-              points,
-              balanceAfter: user.loyaltyPoints,
-              role: 'CUSTOMER',
-            },
-          });
-        }
         if (o.userId)
           await tx.notification.create({
             data: {
@@ -841,13 +877,14 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       key,
       { id, method },
       async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id=${id} AND "userId"=${userId} FOR UPDATE`;
         const o = await tx.order.findFirst({
           where: { id, userId, isLegacy: false },
           include: { payments: true, reservation: true },
         });
         if (!o) fail('NOT_FOUND', 'Không tìm thấy đơn.', 404);
         if (
-          o.status !== 'PENDING_PAYMENT' ||
+          !['PENDING', 'PAYMENT_FAILED'].includes(o.status) ||
           !o.expiresAt ||
           o.expiresAt.getTime() <= Date.now() ||
           o.reservation?.state !== 'HELD' ||
@@ -865,6 +902,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
             409,
           );
         if (!o.finalTotal.isInteger() || o.finalTotal.lte(0)) fail('INVALID_PAYMENT_AMOUNT', 'VNPay/thanh toán yêu cầu số tiền nguyên dương.');
+        if (o.status === 'PAYMENT_FAILED') await tx.order.update({ where: { id }, data: { status: 'PENDING', version: { increment: 1 }, history: { create: { fromStatus: 'PAYMENT_FAILED', toStatus: 'PENDING', orderVersion: o.version + 1, actorId: userId } } } });
         return tx.payment.create({
           data: {
             orderId: id,
@@ -904,6 +942,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       const p = await tx.payment.findUniqueOrThrow({
         where: { id: paymentId },
       });
+      await tx.$queryRaw`SELECT id FROM orders WHERE id=${p.orderId} FOR UPDATE`;
       if (await tx.paymentEvent.findUnique({ where: { providerEventId: eventId } })) return p;
       if (p.status === 'SUCCESS' || p.status === 'FAILED') {
         if (p.status !== status) await tx.paymentEvent.create({ data: { paymentId, providerEventId: eventId, amount: p.amount, outcome: status, processingStatus: 'REQUIRES_REVIEW', metadata } });
@@ -917,7 +956,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       // Provider pay time is evidence, not permission to fulfill an expired order.
       // Both deadlines must still be open when we process the confirmation.
       const assessedAt = new Date();
-      const holdClosed = o.status !== 'PENDING_PAYMENT' || o.reservation?.state !== 'HELD' || !o.expiresAt || o.expiresAt.getTime() <= assessedAt.getTime() || !o.reservation || o.reservation.expiresAt.getTime() <= assessedAt.getTime();
+      const holdClosed = !['PENDING', 'PAYMENT_FAILED'].includes(o.status) || o.reservation?.state !== 'HELD' || !o.expiresAt || o.expiresAt.getTime() <= assessedAt.getTime() || !o.reservation || o.reservation.expiresAt.getTime() <= assessedAt.getTime();
       if (
         status === 'SUCCESS' &&
         (transactionUsed || holdClosed || !p.amount.equals(o.finalTotal))
@@ -960,6 +999,9 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
                 role: 'CUSTOMER',
               },
             });
+          const earned = o.finalTotal.div(10000).floor().toNumber();
+          const rewarded = await tx.user.update({ where: { id: o.userId }, data: { loyaltyPoints: { increment: earned } } });
+          await tx.loyaltyTransaction.create({ data: { userId: o.userId, orderId: o.id, type: 'EARN', points: earned, balanceAfter: rewarded.loyaltyPoints, role: 'CUSTOMER' } });
           await tx.notification.create({
             data: {
               userId: o.userId,
@@ -997,6 +1039,17 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
             },
           },
         });
+      }
+      if (status === 'FAILED' && ['PENDING', 'PAYMENT_FAILED'].includes(o.status) && o.status !== 'PAYMENT_FAILED') {
+        await tx.order.update({ where: { id: o.id }, data: { status: 'PAYMENT_FAILED', version: { increment: 1 }, history: { create: { fromStatus: o.status, toStatus: 'PAYMENT_FAILED', orderVersion: o.version + 1 } } } });
+      }
+      if (status === 'SUCCESS' && o.checkoutCartSnapshot) {
+        const snapshot = record(o.checkoutCartSnapshot);
+        if (typeof snapshot.cartId === 'string' && typeof snapshot.version === 'number' && Array.isArray(snapshot.itemIds)) {
+          // CAS avoids deleting anything added/edited after checkout. Legacy orders have no snapshot.
+          const cleared = await tx.cart.updateMany({ where: { id: snapshot.cartId, userId: o.userId ?? undefined, version: snapshot.version }, data: { version: { increment: 1 } } });
+          if (cleared.count) await tx.cartItem.deleteMany({ where: { cartId: snapshot.cartId, id: { in: snapshot.itemIds.filter((v): v is string => typeof v === 'string') } } });
+        }
       }
       return tx.payment.update({
         where: { id: p.id },
@@ -1042,7 +1095,8 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       where: { id, order: { userId, isLegacy: false } },
     });
     if (!p) fail('NOT_FOUND', 'Không tìm thấy thanh toán.', 404);
-    return p.status === 'UNKNOWN' ? this.settle(id) : p;
+    if (p.status === 'UNKNOWN') await this.settle(id);
+    return this.db.payment.findUniqueOrThrow({ where: { id }, include: { refund: true } });
   }
   async inquire(userId: string, id: string) {
     const p = await this.db.payment.findFirst({ where: { id, ...(userId ? { order: { userId, isLegacy: false } } : { order: { isLegacy: false } }) } });
@@ -1061,7 +1115,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
   }
   async reconcile() {
     const unknown = await this.db.payment.findMany({
-      where: { status: 'UNKNOWN', order: { isLegacy: false } },
+      where: { status: 'UNKNOWN', order: { isLegacy: false }, OR: [{ providerPaymentId: null }, { providerPaymentId: { not: { startsWith: 'vnpay:' } } }] },
       take: 20,
     });
     for (const p of unknown) await this.settle(p.id);
@@ -1072,10 +1126,10 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     const expired = await this.db.orderReservation.findMany({
       where: {
         state: 'HELD',
-        expiresAt: { lt: new Date() },
+        OR: [{ expiresAt: { lt: new Date() } }, { order: { expiresAt: { lt: new Date() } } }],
         order: {
           isLegacy: false,
-          status: 'PENDING_PAYMENT',
+          status: { in: ['PENDING', 'PAYMENT_FAILED'] },
           payments: { none: { status: { in: ['PENDING', 'UNKNOWN'] } } },
         },
       },

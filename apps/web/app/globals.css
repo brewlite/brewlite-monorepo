@@ -1,7 +1,13 @@
 @import "tailwindcss";
 @import "./roast-theme.css";
+@import "./typography.css";
 
 html { scroll-behavior: smooth; zoom: 0.5; }
+
+/* Compensate for the existing 50% root scale: the shell fills one viewport. */
+.site-shell { display: flex; flex-direction: column; min-height: 200vh; min-height: 200svh; }
+.site-shell > main { flex: 1; min-width: 0; }
+.site-shell > .site-header, .site-shell > .site-footer { flex-shrink: 0; }
 
 /* Viewport limits must account for the root's 50% visual scale. */
 html .bl-auth-dialog,
@@ -30,3 +36,6 @@ body {
 .profile-password-input::-ms-clear {
   display: none !important;
 }
+
+.cart-count-badge { display:inline-flex; align-items:center; justify-content:center; min-width:1.4em; padding:0 .3em; margin-left:.35em; border:1px solid currentColor; border-radius:999px; font-size:.75em; line-height:1.4; }
+.co-payment_failed { background:#fff0ee; color:#9b201b; }

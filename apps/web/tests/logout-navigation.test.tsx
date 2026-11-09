@@ -1,3 +1,4 @@
+vi.mock('../components/cart/cart-provider', () => ({ useCart: () => ({ count: 3 }) }));
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Header } from '../components/layout/header';
@@ -28,3 +29,5 @@ it('stays on the current page and keeps auth state when logout fails', async () 
   render(<Header />); fireEvent.click(screen.getByRole('button', { name: 'Tài khoản' })); fireEvent.click(screen.getByRole('menuitem', { name: 'Đăng xuất' }));
   await screen.findByRole('alert'); expect(replace).not.toHaveBeenCalled(); expect(setAuthUser).not.toHaveBeenCalled();
 });
+
+it('shows the live cart quantity badge', () => { render(<Header />); expect(screen.getByLabelText('3 sản phẩm trong giỏ').textContent).toBe('3'); });

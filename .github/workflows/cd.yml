@@ -1,0 +1,99 @@
+name: CD
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      allow_migrations:
+        description: 'Reviewed pending migrations and downtime/backup plan'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: production-delivery
+  cancel-in-progress: false
+jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+  images:
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      prefix: ${{ steps.image.outputs.prefix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify release belongs to main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - id: image
+        shell: bash
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish API
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.prefix }}/api:${{ github.sha }}
+      - name: Build and publish web
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.prefix }}/web:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://brewlite-sgu.duckdns.org
+            NEXT_PUBLIC_ENABLE_VNPAY_SANDBOX=false
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://brewlite-sgu.duckdns.org
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare verified SSH connection
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Transfer reviewed deployment files
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /home/ubuntu/brewlite/.incoming/$RELEASE_SHA"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes compose.prod.yml deploy/release.sh deploy/smoke.mjs "$DEPLOY_USER@$DEPLOY_HOST:/home/ubuntu/brewlite/.incoming/$RELEASE_SHA/"
+      - name: Deploy with database safety gate
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE_SHA: ${{ github.sha }}
+          IMAGE_PREFIX: ${{ needs.images.outputs.prefix }}
+          ALLOW_MIGRATIONS: ${{ inputs.allow_migrations == true && 'true' || 'false' }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "sudo -n bash /home/ubuntu/brewlite/.incoming/$RELEASE_SHA/release.sh '$RELEASE_SHA' '$IMAGE_PREFIX' '$ALLOW_MIGRATIONS'"
+      - name: Public HTTPS smoke test
+        run: node deploy/smoke.mjs https://brewlite-sgu.duckdns.org

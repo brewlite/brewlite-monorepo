@@ -38,7 +38,7 @@ SRS mô tả **hành vi kiểm chứng được** của BrewLite: chức năng (
 
 ### 2.1. Hoạt động chính
 
-**Customer:** `Menu → Detail / Options → Cart → Xác nhận mua → Auth (nếu thiếu) → Coupon/Points (optional) → Server reprice → Stock check/reserve → PENDING_PAYMENT → Mock payment → Paid / Retry / Cancel → Order status / history`.
+**Customer:** `Menu → Detail / Options → Cart → Xác nhận mua → Auth (nếu thiếu) → Coupon/Points (optional) → Server reprice → Stock check/reserve → PENDING → Mock payment → Paid / Retry / Cancel → Order status / history`.
 **Staff:** `Login → View paid orders → PREPARING → READY → COMPLETED`.
 **ADMIN:** `Login → Manage products/SKU/menu, promotions, users/roles`.
 
@@ -90,7 +90,7 @@ SRS mô tả **hành vi kiểm chứng được** của BrewLite: chức năng (
 | FR-13 | Must | Cho phép sử dụng điểm thưởng đã có. | **AC-13:** điểm nguyên, không quá available balance hoặc 20% after-coupon (quy ra 100 VND/điểm); không âm; điểm chỉ consume 1 lần sau paid, payment fail/hủy không bị trừ. TC-07. |
 | FR-14 | Must | Tính lại tổng phải trả ở backend theo SP-06…09. | **AC-14:** `payable = subtotal − couponDiscount − redeemPoints×100`; all values int VND; ví dụ 100.000 − 10.000 − 10.000 = 80.000; kết quả API order và số tiền gửi gateway bằng nhau; không cho client gửi tổng tùy ý. TC-05/06/07. |
 | FR-15 | Must | Kiểm tra tồn theo Size.id trước tạo đơn. | **AC-15:** available=onHand-reserved; NULL là chưa sẵn sàng, không tự coi 0/vô hạn; gộp quantity mọi dòng cùng Size; thiếu/chưa phân bổ trả 409 + items, không tạo order, khách sửa giỏ. Quote không cam kết còn hàng. TC-08. |
-| FR-16 | Must | Tạo Order `PENDING_PAYMENT` và giữ chỗ hàng/coupon/điểm **trong transaction**. | **AC-16:** order có `orderId`, `ownerId`, snapshot items/total, `expiresAt = createdAt + 10 min`; trường hợp đủ hàng tạo reservation atomic; một constraint bị lỗi rollback toàn bộ; cùng key `POST /orders` không tạo order trùng. TC-09/10. |
+| FR-16 | Must | Tạo Order `PENDING` và giữ chỗ hàng/coupon/điểm **trong transaction**. | **AC-16:** order có `orderId`, `ownerId`, snapshot items/total, `expiresAt = createdAt + 10 min`; trường hợp đủ hàng tạo reservation atomic; một constraint bị lỗi rollback toàn bộ; cùng key `POST /orders` không tạo order trùng. TC-09/10. |
 | FR-17 | Must | Tạo payment attempt cho ví hoặc thẻ **mô phỏng**, không thu tiền thật. | **AC-17:** chọn `MOCK_WALLET` hoặc `MOCK_CARD` kích hoạt mock service với orderId/amount/paymentRef; source type test, không nhập/lưu PAN/CVV; mock phản hồi SUCCESS/FAILED/UNKNOWN. TC-11. |
 | FR-18 | Must | Xác nhận thành công từ mock, chuyển reservation thành tiêu dùng và trả mã đơn. | **AC-18:** chỉ khi backend xác minh paymentRef+orderId+amount và trạng thái `SUCCESS`, 1 transaction duy nhất chuyển Order sang PAID, consume coupon/points, cập nhật tồn kho; 2 callback giống nhau có cùng kết quả, không trừ hai lần. TC-10/11. |
 | FR-19 | Must | Xử lý payment `FAILED` và cho retry hoặc cancel khi còn hiệu lực. | **AC-19:** UI hiện thất bại, chỉ tiếp tục attempt mới khi attempt trước FAILED, không tự tạo order mới; max 3 attempts trong TTL; khách hủy trước PAID → CANCELLED và release reservations 1 lần. TC-12. |
@@ -107,7 +107,7 @@ SRS mô tả **hành vi kiểm chứng được** của BrewLite: chức năng (
 | FR-24 | Must | Thông báo **trong ứng dụng** khi payment và order status đổi. | **AC-24:** sau thanh toán UI hiện success/fail/UNKNOWN đúng; sau refresh trang trạng thái hiện dữ liệu mới; không bắt buộc SMS/email/push. TC-13/16. |
 | FR-25 | Must | ADMIN quản lý mã giảm giá và quota. | **AC-25:** ADMIN tạo/sửa/tắt coupon, điều kiện/valid range/limit; coupon disabled không được checkout; action khác role trả 403; quota reserved không vượt max. TC-18. |
 | FR-26 | Must | ADMIN quản lý người dùng/role và trạng thái tài khoản. | **AC-26:** ADMIN liệt kê, vô hiệu hóa user, gán role theo whitelist; CUSTOMER/STAFF không thể tự nâng quyền qua API; user bị vô hiệu không đăng nhập được. TC-18. |
-| FR-33 | Must | Hệ thống tích điểm khi đơn đã giao/hoàn thành. | **AC-33:** `floor(payable/10_000)` điểm được cộng **một lần khi COMPLETED**; replay status không cộng lại; CANCELLED hoặc chưa PAID không tích điểm. TC-17. |
+| FR-33 | Must | Hệ thống tích điểm khi thanh toán thành công và đơn chuyển PAID. | **AC-33:** `floor(payable/10_000)` điểm được cộng **một lần khi PAID**; replay status không cộng lại; CANCELLED hoặc chưa PAID không tích điểm. TC-17. |
 
 ### 3.6. Backlog: Should / Could / Won’t (giới hạn phạm vi)
 
@@ -126,7 +126,7 @@ SRS mô tả **hành vi kiểm chứng được** của BrewLite: chức năng (
 | BR-01 | Không có order khi giỏ rỗng, item/size/topping/số lượng không hợp lệ, hoặc tài khoản chưa auth. |
 | BR-02 | Giá API authoritative; order lưu snapshot, thay catalog sau đó không đổi đơn cũ. |
 | BR-03 | Số tồn khả dụng = `on_hand - reserved`, mọi giao dịch đổi tồn kho phải atomic; không bán vượt lượng có thể bán. |
-| BR-04 | Reservation ở `PENDING_PAYMENT`, paid mới tiêu kho/điểm/coupon; canceled/expired mới release. |
+| BR-04 | Reservation ở `PENDING`, paid mới tiêu kho/điểm/coupon; canceled/expired mới release. |
 | BR-05 | Tối đa 01 coupon và các điểm hợp lệ, thứ tự tính như SP-07…09; money integer VND. |
 | BR-06 | Order status transitions chỉ theo SP-15; attempt status không đồng nghĩa order status. |
 | BR-07 | Không thực hiện thử thanh toán mới khi attempt cuối `UNKNOWN` chưa reconcile; giao dịch trùng không có side-effect lặp. |
@@ -140,7 +140,7 @@ SRS mô tả **hành vi kiểm chứng được** của BrewLite: chức năng (
 
 | Đối tượng | Trạng thái | Chuyển hợp lệ |
 |---|---|---|
-| Order | `PENDING_PAYMENT` | `PAID`, `CANCELLED` |
+| Order | `PENDING` | `PAID`, `CANCELLED` |
 | Order | `PAID` | `PREPARING` |
 | Order | `PREPARING` | `READY` |
 | Order | `READY` | `COMPLETED` |
@@ -156,8 +156,8 @@ SRS mô tả **hành vi kiểm chứng được** của BrewLite: chức năng (
 | E2/A2 — coupon không hợp lệ | 422/400 mã lỗi ứng với lý do; nhập lại/bỏ qua | Chưa có order (hoặc giỏ vẫn giữ) |
 | E3/A3 — điểm sai | 422/400; nhập lại/bỏ qua | Chưa có order |
 | E4/A4 — hết SKU | 409 + unavailable items; sửa giỏ | Không có order payable |
-| E5/A5 — payment failed | attempt FAILED, retry mới hoặc cancel; không mất mã/điểm | `PENDING_PAYMENT` hoặc `CANCELLED` |
-| Gateway timeout/response lost | attempt UNKNOWN → status inquiry, chặn retry gây duplicate charge | `PENDING_PAYMENT` cho tới khi reconcile |
+| E5/A5 — payment failed | attempt FAILED, retry mới hoặc cancel; không mất mã/điểm | `PENDING` hoặc `CANCELLED` |
+| Gateway timeout/response lost | attempt UNKNOWN → status inquiry, chặn retry gây duplicate charge | `PENDING` cho tới khi reconcile |
 
 ## 5. External Interface Requirements (mức hợp đồng, không thay API specification)
 
@@ -228,7 +228,7 @@ Nguồn có thể chỉnh sửa ở `docs/diagrams/usecase-overview.puml`, hiể
 | 3–5. Nhập coupon/điểm (E2/E3) | FR-12/13 | AC-12/13; TC-06/07 |
 | 6. Tính tổng | FR-14 | AC-14; TC-05 |
 | 7. Kiểm tra tồn kho (E4/A4) | FR-15 | AC-15; TC-08 |
-| 8. Tạo `PENDING_PAYMENT` | FR-16/20/32 | AC-16/20/32; TC-09/10 |
+| 8. Tạo `PENDING` | FR-16/20/32 | AC-16/20/32; TC-09/10 |
 | 9. Gửi gateway mock | FR-17/19/20/32 | AC-17/19/20/32; TC-11/12 |
 | 10. Success: paid, consume, mã đơn | FR-18/21/24 | AC-18/21/24; TC-10/13 |
 | E5/A5: thất bại, thử lại, hủy | FR-19/20/32 | AC-19/20/32; TC-12 |
@@ -266,3 +266,18 @@ Nguồn có thể chỉnh sửa ở `docs/diagrams/usecase-overview.puml`, hiể
 - Giữ quote /api/cart/calculate, tiền Decimal VND nguyên/JSON string; pricing và reservation theo policy; không coi quote giữ hàng.
 - CR-SEC-01 tách riêng thay đổi acceptance mật khẩu Unicode/bcrypt, đã được người yêu cầu phê duyệt ngày 07/11/2026. Chưa sửa tests/acceptance-test-cases.md; checklist cập nhật tests thuộc PR implementation.
 - Các Use Case/Activity/Class/Sequence gốc thiếu source không được coi đã cập nhật; xem UML checklist. Không ghi stakeholder/giảng viên đã phê duyệt nếu thiếu evidence.
+
+### Đồng bộ Assignment 1 và 2 — 2026-11-09
+
+Theo yêu cầu triển khai đúng assignment: Order khởi tạo PENDING; FAILED đã xác minh chuyển PAYMENT_FAILED và giữ giỏ để retry/hủy trong TTL. Retry tạo attempt mới chuyển lại PENDING. SUCCESS hợp lệ chuyển PAID, ghi EARN đúng một lần tại thời điểm thanh toán; COMPLETED không cộng lại. UNKNOWN giữ trạng thái chờ xác minh, không bị suy diễn thành FAILED. Badge số lượng được hiển thị trên header.
+
+
+## Hủy PAID và hoàn tiền mô phỏng — 2026-11-09
+
+Theo nhánh PAID -> CANCELLED của Assignment 1, CUSTOMER được hủy đơn của mình trước PREPARING. POST /api/orders/:id/cancel nhận {expectedVersion} và Idempotency-Key; version bắt buộc cho PAID. PENDING/PAYMENT_FAILED tiếp tục release HELD; chặn attempt PENDING/UNKNOWN. PREPARING/READY/COMPLETED không hủy.
+
+Mock full refund thực hiện trong một transaction serializable, khóa Order dùng chung với STAFF nhận pha chế: Refund(provider=MOCK,status=SUCCESS,amount=Payment.amount), Order CANCELLED và history actor/version; Payment gốc vẫn SUCCESS. Một Refund duy nhất cho mỗi Payment và khóa idempotency ngăn hoàn trùng. Hoàn onHand theo snapshot quantity, không sửa reserved lần nữa; reservation CONSUMED được giữ làm lịch sử tiêu thụ gốc. Coupon usedCount giảm một lần, không âm, không bật lại mã. REFUND hoàn đúng điểm REDEEM; EARN_REVERSAL thu hồi đúng EARN ledger, không tính lại bằng giá hiện tại.
+
+Nếu thiếu ledger hoặc số dư sau hoàn/thu hồi thấp hơn reservedPoints: lỗi LOYALTY_RECONCILIATION_REQUIRED, không ghi Refund hoặc thay đổi tài nguyên. Không làm điểm âm, không đụng đến điểm đang giữ ở đơn khác. Nếu bước nào lỗi, rollback cả Refund, stock, coupon, ledger và Order. Khách nhận thông báo liên hệ cửa hàng để đối soát.
+
+VNPay bị chặn bằng EXTERNAL_REFUND_UNSUPPORTED, không gửi yêu cầu refund ngoài hệ thống, không giả Refund SUCCESS. Các trạng thái Refund REQUESTED/PENDING/FAILED/UNKNOWN là khả năng mô hình, chưa phải adapter gateway đã triển khai. Hoàn tiền ở đây là mô phỏng, không có tiền thật.

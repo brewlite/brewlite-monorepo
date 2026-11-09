@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 export default function OrdersPage() {
   return (
     <SiteFrame>
-      <section className="section">
+      <section className="section orders-page">
         <div className="container">
           <OrdersView />
         </div>

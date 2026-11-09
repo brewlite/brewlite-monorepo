@@ -6,6 +6,7 @@ import LoginForm from "../auth/login-form";
 import { useAuthUser, setAuthUser } from "../../lib/auth-store";
 import { authError, logout } from "../../services/auth.service";
 import { usePathname } from "next/navigation";
+import { useCart } from "../cart/cart-provider";
 import { setMenuQuery, useMenuView } from "../../lib/menu-view";
 
 const links = [
@@ -149,6 +150,7 @@ function HeaderSearch() {
   );
 }
 export function Header() {
+  const { count } = useCart();
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
 
@@ -174,7 +176,7 @@ export function Header() {
                     href={link.href}
                     onClick={() => setOpen(false)}
                   >
-                    {link.label}
+                    {link.label}{link.href === "/cart" && <span className="cart-count-badge" aria-label={`${count} sản phẩm trong giỏ`}>{count}</span>}
                   </Link>
                 </li>
               ))}

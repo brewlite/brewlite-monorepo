@@ -2,6 +2,22 @@
 # Caddy automatically obtains and renews HTTPS certificates when DNS/ports work.
 {$SITE_DOMAIN} {
     encode zstd gzip
+    # Access logging without payment query strings, cookies or headers.
+    # Correlate timestamps with Nest's vnpay.ipn / vnpay.querydr events.
+    log {
+        output stdout
+        format filter {
+            wrap json
+            fields {
+                request>uri delete
+                request>headers delete
+                resp_headers delete
+            }
+        }
+    }
+
+    @vnpay_ipn path /api/payments/vnpay/ipn
+    log_append @vnpay_ipn endpoint vnpay-ipn
 
     # Preserve the /api prefix expected by NestJS (do not use handle_path here).
     handle /api/* {

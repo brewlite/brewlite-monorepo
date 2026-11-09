@@ -21,7 +21,6 @@ export function PurchaseFlow({ onClose }: { onClose: () => void }) {
   const [message, setMessage] = useState("");
   const [coupon, setCoupon] = useState("");
   const [points, setPoints] = useState(0);
-  const [method, setMethod] = useState('VNPAY');
   const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [quoteError, setQuoteError] = useState('');
   const [calculating, setCalculating] = useState(false);
@@ -32,7 +31,6 @@ export function PurchaseFlow({ onClose }: { onClose: () => void }) {
     lines: typeof lines;
     coupon: string;
     points: number;
-    method: string;
     version: number;
   } | null>(null);
   const quote =
@@ -40,7 +38,7 @@ export function PurchaseFlow({ onClose }: { onClose: () => void }) {
     result.lines === lines &&
     result.coupon === coupon &&
     result.points === points
-    && result.method === method && result.version === version
+    && result.version === version
       ? result.quote
       : null;
   useEffect(() => {
@@ -66,13 +64,13 @@ export function PurchaseFlow({ onClose }: { onClose: () => void }) {
       setCalculating(true); setQuoteError('');
       try {
         const next = await calculateQuote(lines, coupon, points);
-        if (active) setResult({ quote: next, lines, coupon, points, method, version });
+        if (active) setResult({ quote: next, lines, coupon, points, version });
       } catch (caught) {
         if (active) { setResult(null); setQuoteError(caught instanceof Error ? caught.message : 'Không thể tính tổng đơn.'); }
       } finally { if (active) setCalculating(false); }
     }, 400);
     return () => { active = false; clearTimeout(timer); };
-  }, [user, ready, canCheckout, lines, coupon, points, method, version, quoteAttempt]);
+  }, [user, ready, canCheckout, lines, coupon, points, version, quoteAttempt]);
   if (checking)
     return (
       <CenteredDialog label="Kiểm tra đăng nhập" onClose={onClose}>
@@ -119,9 +117,6 @@ export function PurchaseFlow({ onClose }: { onClose: () => void }) {
               onChange={(event) => setPoints(Number(event.target.value))}
             />
             <p className="purchase-subtotal"><span>Tạm tính</span><strong>{formatPrice(subtotal)}đ</strong></p>
-            <label htmlFor="purchase-method">Phương thức thanh toán</label>
-            <select id="purchase-method" value={method} onChange={(event) => setMethod(event.target.value)}><option value="VNPAY">VNPay Sandbox</option></select>
-            <p className="purchase-hint">Đơn được tạo ở trạng thái chờ thanh toán. Tiếp tục thanh toán từ trang chi tiết đơn.</p>
             {!validPoints && <p role="alert">Điểm phải là số nguyên từ 0 đến số điểm hiện có.</p>}
             {(!quote || calculating) && !quoteError && validPoints && ready && canCheckout !== false && <p role="status">Đang cập nhật tổng đơn…</p>}
             {quoteError && <p role="alert">{quoteError} <button type="button" onClick={() => setQuoteAttempt((value) => value + 1)}>Thử lại</button></p>}

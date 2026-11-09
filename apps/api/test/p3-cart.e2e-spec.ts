@@ -103,10 +103,13 @@ import { PrismaService } from '../src/prisma/prisma.service';
     const key = randomUUID(); const body = { expectedVersion: (await get()).body.version }; await remove(a.body.items[0].id, body, key).expect(200); await remove(a.body.items[0].id, body, key).expect(200);
     expect((await get()).body.items).toHaveLength(1);
   });
-  it('enforces CUSTOMER ownership and rejects ADMIN/STAFF cart access', async () => {
+  it('enforces ownership and allows STAFF to read only their own cart', async () => {
     const added = await post('/cart/items', item()).expect(201); const id = added.body.items[0].id;
     await patch(id, item(), randomUUID(), other).expect(404); await remove(id, {}, randomUUID(), other).expect(404); expect((await get(other)).body.items).toEqual([]);
-    await get(admin).expect(403); await get(staff).expect(403); expect((await get()).body.items[0].id).toBe(id);
+    await get(admin).expect(403); expect((await get(staff).expect(200)).body.items).toEqual([]);
+    await post('/cart/items', item(), randomUUID(), staff).expect(403);
+    await patch(id, item(), randomUUID(), staff).expect(403);
+    expect((await get()).body.items[0].id).toBe(id);
   });
   it('quote and Order boundary recheck availability without creating Order or reservation', async () => {
     const sku = await db.size.create({ data: { productId, name: 'Changed stock', extraPrice: '0', onHand: 2 } });
