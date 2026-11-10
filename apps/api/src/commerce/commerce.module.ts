@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { CommerceService } from './commerce.service';
 import { StoreAdminService } from './admin.service';
 import { StoreAdminController } from './admin.controller';
+import { ProductImageController } from './product-image.controller';
 import {
   ConfiguredCartController,
   OrdersController,
@@ -22,6 +23,7 @@ import {
     OrdersController,
     PaymentsController,
     StaffOrdersController,
+    ProductImageController,
     StoreAdminController,
   ],
   providers: [CommerceService, StoreAdminService, VNPayService],

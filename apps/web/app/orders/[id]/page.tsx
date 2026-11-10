@@ -13,7 +13,7 @@ export default function OrderPage({
   return (
     <Suspense fallback={<p role="status">Đang tải đơn…</p>}>
       <SiteFrame>
-        <section className="section">
+        <section className="section orders-page">
           <div className="container">
             <Suspense fallback={<p>Đang tải…</p>}>
               <Content params={params} />

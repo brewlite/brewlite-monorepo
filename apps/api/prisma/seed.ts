@@ -171,20 +171,8 @@ async function main() {
   }
   console.log('✅ Đã nạp bảng: products, sizes');
 
-  // 4. Users (Manager, Staff, Customer)
+  // 4. Users (Staff, Customer). ADMIN is provisioned only through controlled bootstrap.
   const passwordHash = '$2b$10$ep5B6x9.q/Ue7sV2J5n.UeB5rQ3L2Kz9.O4s8c.u4U4x5y6z7w8v'; // admin123
-
-  const managerUser = await prisma.user.upsert({
-    where: { email: 'admin@brewlite.vn' },
-    update: {},
-    create: {
-      email: 'admin@brewlite.vn',
-      fullName: 'Nguyễn Văn Quản Lý',
-      phone: '0901234567',
-      passwordHash,
-      role: UserRole.MANAGER,
-    },
-  });
 
   const staffUser = await prisma.user.upsert({
     where: { email: 'staff@brewlite.vn' },
@@ -210,7 +198,7 @@ async function main() {
       loyaltyPoints: 120,
     },
   });
-  console.log('✅ Đã nạp bảng: users (MANAGER, STAFF, CUSTOMER)');
+  console.log('✅ Đã nạp bảng: users (STAFF, CUSTOMER)');
 
   // 5. Promotions
   const promotionsData = [
@@ -437,7 +425,7 @@ async function main() {
       data: {
         orderCode: 'ORD-20261104-003',
         userId: customerUser.id,
-        status: OrderStatus.PENDING_PAYMENT,
+        status: OrderStatus.PENDING,
         subtotal: 29000,
         discountAmount: 0,
         pointsUsed: 0,

@@ -174,7 +174,7 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
       const action = await create(customer);
       const created = await action.send().expect(201);
       orderId = created.body.id;
-      expect(created.body.status).toBe('PENDING_PAYMENT');
+      expect(created.body.status).toBe('PENDING');
       expect((await action.send().expect(201)).body.id).toBe(orderId);
       expect(
         (await db.size.findUniqueOrThrow({ where: { id: sizeId } })).reserved,
@@ -210,7 +210,7 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
         await db.paymentEvent.count({ where: { paymentId: attempt.body.id } }),
       ).toBe(1);
     });
-    it('STAFF follows sequential statuses; awards points exactly once on COMPLETED', async () => {
+    it('STAFF follows sequential statuses; keeps points awarded at PAID unchanged through COMPLETED', async () => {
       const o = await get(`/orders/${orderId}`, customer).expect(200);
       await patch(`/staff/orders/${orderId}/status`, admin)
         .send({ expectedVersion: o.body.version, nextStatus: 'PREPARING' })
@@ -218,6 +218,7 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
       await patch(`/staff/orders/${orderId}/status`, staff)
         .send({ expectedVersion: o.body.version, nextStatus: 'READY' })
         .expect(409);
+      expect(await db.loyaltyTransaction.count({ where: { orderId, type: 'EARN' } })).toBe(1);
       let version = o.body.version;
       for (const nextStatus of ['PREPARING', 'READY', 'COMPLETED']) {
         const key = randomUUID();

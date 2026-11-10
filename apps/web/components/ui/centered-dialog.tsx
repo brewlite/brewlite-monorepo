@@ -12,7 +12,8 @@ export function CenteredDialog({ children, label, onClose, className = "" }: { c
     return () => { dialog?.close(); document.body.style.overflow = previous; };
   }, []);
   return <dialog ref={ref} className={`centered-notice ${className}`.trim()} aria-label={label}
-    onCancel={(event) => { event.preventDefault(); onClose(); }}
+    onCancel={(event) => { event.preventDefault(); event.stopPropagation(); onClose(); }}
+    onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }}
     onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     {children}
   </dialog>;

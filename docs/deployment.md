@@ -37,3 +37,7 @@ Chưa tự triển khai CD: cần nhóm chỉ định hosting, domain/HTTPS, sec
 ## Migration/rollback
 
 Backup trước khi migrate; giữ các migration lịch sử. Không rollback bằng drop/reset/down -v. Expand có thể quay lại bản ứng dụng cũ tương thích, giữ cột/bảng mới; nếu đã có giao dịch mới, forward-fix sau review. Khôi phục backup chỉ vào DB clone hoặc theo kế hoạch phục hồi được duyệt, không ghi đè DB hiện tại.
+
+## CD đã chuẩn bị — 2026-11-09
+
+Xem [CD-SETUP](../deploy/CD-SETUP.md) và [ADR-0002](architecture/adr/0002-controlled-ec2-delivery.md). Thay thế ghi chú “chưa có code CD” phía trên; chưa thay thế yêu cầu minh chứng pipeline thực tế. Không chạy deploy hoặc thay secrets trong lượt chuẩn bị này.

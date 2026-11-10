@@ -36,13 +36,15 @@ function SiteChrome({ children }: { children: ReactNode }) {
   return (
     <>
       <a className="skip-link" href="#main">Bỏ qua điều hướng</a>
+      <div className="site-shell" style={{ display: 'flex', flexDirection: 'column', minHeight: '200svh' }}>
       <Header />
-      <main id="main">
+      <main id="main" style={{ flex: '1 0 auto', minWidth: 0 }}>
         <BackLink />
         {children}
       </main>
-      <BackToTop />
       <Footer />
+      </div>
+      <BackToTop />
       {isOpen && (
         <div className="bag-backdrop" onClick={closeCart}>
           <div

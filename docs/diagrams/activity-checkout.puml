@@ -1,0 +1,71 @@
+@startuml
+!theme plain
+title BrewLite — Đặt và thanh toán (source hiện tại)
+|Khách hàng|
+start
+:Xem thực đơn và chọn món;
+:Chọn size, topping, số lượng, ghi chú;
+|NestJS|
+:Validate cấu hình và tồn theo Size;
+if (Còn khả dụng?) then (không)
+  |Khách hàng|
+  :Nhận thông báo, chọn món khác;
+  stop
+else (có)
+  :Cập nhật giỏ bằng version và Idempotency-Key;
+endif
+|Khách hàng|
+while (Chọn thêm?) is (có)
+  :Chọn món khác và cập nhật giỏ;
+endwhile (không)
+:Xem giỏ, xác nhận mua;
+if (Đã đăng nhập?) then (chưa)
+  :Đăng ký / OTP / đăng nhập;
+endif
+:Chọn coupon và điểm;
+|NestJS|
+:Tính giá bằng Decimal, validate quota và điểm;
+:Transaction + khóa/CAS: giữ tồn, quota, điểm;
+if (Hợp lệ?) then (không)
+  :Rollback, trả lỗi; giữ giỏ;
+  stop
+endif
+:Tạo Order PENDING, snapshot, reservation HELD 10 phút;
+|Khách hàng|
+:Chọn Ví/Thẻ mô phỏng;
+|NestJS|
+:Tạo attempt idempotent;
+if (Kết quả đã xác minh?) then (UNKNOWN)
+  :Giữ trạng thái; chặn retry/hủy; chờ đối soát;
+  stop
+elseif (FAILED?) then (có)
+  :Order PAYMENT_FAILED; giữ giỏ và tài nguyên;
+  |Khách hàng|
+  :Retry trong TTL hoặc hủy;
+  |NestJS|
+  :Retry -> PENDING; hủy/hết hạn hợp lệ -> CANCELLED + release;
+  stop
+else (SUCCESS)
+  :Transaction: PAID + consume tồn/coupon/điểm;
+  :Ghi EARN một lần; dọn giỏ nếu version còn khớp;
+endif
+|Khách hàng|
+:Xem mã đơn, kết quả và lịch sử;
+if (Khách yêu cầu hủy PAID?) then (có)
+  |NestJS|
+  :Khóa Order, check version, mock provider và ledger;
+  if (Hoàn tự động hợp lệ?) then (có)
+    :Refund MOCK SUCCESS; hoàn tồn/coupon/điểm;
+    :EARN_REVERSAL, Order CANCELLED; Payment vẫn SUCCESS;
+  else (không)
+    :Rollback; báo cần đối soát / gateway chưa hỗ trợ;
+  endif
+  stop
+endif
+|Nhân viên|
+:Khóa cùng Order, check version;
+:PAID -> PREPARING -> READY -> COMPLETED;
+|Khách hàng|
+:Nhận món tại quầy;
+stop
+@enduml

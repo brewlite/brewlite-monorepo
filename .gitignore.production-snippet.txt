@@ -1,0 +1,6 @@
+# Add these lines to the existing root .gitignore before committing:
+/deploy/.env.production
+/uploads/
+/*.tar
+/*.tar.gz
+/*.backup

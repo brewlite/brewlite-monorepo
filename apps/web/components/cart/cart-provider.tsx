@@ -101,6 +101,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const customer = user?.role === "CUSTOMER";
+  const cartReader = customer || user?.role === 'STAFF';
   const actor = user?.id;
   const [remote, setRemote] = useState<{
     userId: string;
@@ -113,28 +114,28 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [lastAdded, setLastAdded] = useState<NewCartLine | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<CartLine | null>(null);
   const serverCart =
-    customer && remote?.userId === user.id ? remote.cart : null;
+    cartReader && user && remote?.userId === user.id ? remote.cart : null;
   const lines = useMemo(
     () => (user ? (serverCart ? cartLines(serverCart) : EMPTY) : local),
     [user, serverCart, local],
   );
   async function reload() {
-    if (customer) {
+    if (cartReader && user) {
       const cart = await getStore<ServerCart>("/cart");
       setRemote({ userId: user.id, cart });
     }
   }
   useEffect(() => {
-    if (!customer || !actor) return;
+    if (!cartReader || !actor) return;
     const actorId = actor;
     let active = true;
     async function sync() {
       try {
-        const command = pendingCartCommand(actorId);
+        const command = customer ? pendingCartCommand(actorId) : null;
         let cart = command ? await executeCartCommand(actorId, command) : await getStore<ServerCart>("/cart");
         if (!active) return;
         setBusy(true); setRemote({ userId: actorId, cart });
-        cart = await mergeGuestCart(actorId, cart, getSnapshot(), getSnapshot, commit);
+        if (customer) cart = await mergeGuestCart(actorId, cart, getSnapshot(), getSnapshot, commit);
         if (active) {
           setRemote({ userId: actorId, cart });
           setSyncError("");
@@ -147,7 +148,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [customer, actor, attempt]);
+  }, [customer, cartReader, actor, attempt]);
+  useEffect(() => {
+    if (!cartReader || !actor) return;
+    let active = true;
+    const sync = () => { void getStore<ServerCart>('/cart').then((cart) => { if (active) setRemote({ userId: actor, cart }); }).catch(() => { if (active) setSyncError('Không thể đồng bộ giỏ hàng. Vui lòng thử lại.'); }); };
+    window.addEventListener('brewlite:cart-updated', sync);
+    return () => { active = false; window.removeEventListener('brewlite:cart-updated', sync); };
+  }, [cartReader, actor]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 8000);
@@ -175,7 +183,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     version: serverCart?.version ?? 0,
     ready: auth.ready && !auth.error && (!user || !!serverCart),
     busy,
-    canCheckout: auth.ready && !auth.error && !syncError && !busy && (!customer || !pendingCartCommand(user!.id)) && (!user || local.length === 0) && !!lines.length && lines.every((line) => !!line.sizeId && !line.requiresConfiguration && line.isValid !== false),
+    canCheckout: (!user || customer) && auth.ready && !auth.error && !syncError && !busy && (!customer || !pendingCartCommand(user!.id)) && (!user || local.length === 0) && !!lines.length && lines.every((line) => !!line.sizeId && !line.requiresConfiguration && line.isValid !== false),
     pendingGuest: customer ? local : EMPTY,
     retry: () => { setSyncError(""); void refreshAuth().then(() => setAttempt((a) => a + 1)).catch((error) => setSyncError(authError(error))); },
     reload,

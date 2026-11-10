@@ -18,14 +18,14 @@
 | SP-05 | JWT access **15 phút**; refresh token **7 ngày**, luân phiên và thu hồi khi logout; kiểm tra phiên/revocation server | [D] tham chiếu [S] | Tránh phát biểu không đúng rằng xóa token ở client đủ để revoke JWT; SEC-02 |
 | SP-06 | Decimal giữ kiểu cột chuyển đổi, enforce VND nguyên; API chuỗi số nguyên; UTC trong DB, Asia/Ho_Chi_Minh ở UI. Snapshot giá khi Order, không tin tiền client. | Quyết định P0 | TC-05; không floating-point cộng tiền hoặc silently round dữ liệu cũ |
 | SP-07 | Một checkout dùng **tối đa 01 coupon** cộng điểm thưởng. Coupon cố định hoặc %; % từ 1–50, coupon giảm **không quá 50% subtotal**; điều kiện min basket theo cấu hình; code dùng đúng 1 lần/khách nếu cấu hình | [D] cụ thể hóa [U] | Quy tắc xác định, không phát sinh đơn 0đ; TC-06 |
-| SP-08 | Điểm quy đổi **1 điểm = 100 VND**; dùng số điểm nguyên; giới hạn quy đổi **≤20% giá trị còn lại sau coupon**; tích điểm **1 điểm / 10.000 VND đã thanh toán**, làm tròn xuống, ghi khi `COMPLETED` | [D] cụ thể hóa [U] | Tách đổi điểm và tích điểm; TC-07, TC-17 |
+| SP-08 | Điểm quy đổi **1 điểm = 100 VND**; dùng số điểm nguyên; giới hạn quy đổi **≤20% giá trị còn lại sau coupon**; tích điểm **1 điểm / 10.000 VND đã thanh toán**, làm tròn xuống, ghi khi `PAID` | [D] cụ thể hóa [U] | Tách đổi điểm và tích điểm; TC-07, TC-17 |
 | SP-09 | Thứ tự tính: `subtotal` → `couponDiscount` → `redeemValue` → `payable`; mọi bước do API tính với VND nguyên, làm tròn giảm giá phần trăm xuống đồng; không thêm thuế/ship trong MVP | [D],[S] | Công thức duy nhất, TC-05–07 |
 | SP-10 | Size.id là SKU, Size thuộc Product; onHand/reserved/isAvailable; available=onHand-reserved. onHand NULL chưa phân bổ và không thể đặt. Không ProductSKU, không nhân tồn Product cho mỗi Size; stockQuantity legacy đến switch. | Quyết định P0 | INT-05, migration allocation được duyệt |
-| SP-11 | Tạo đơn `PENDING_PAYMENT`: **atomic reservation** của SKU, coupon quota và điểm; không trừ điểm/đánh dấu mã đã dùng. `PAID`: chuyển reservation sang tiêu thụ. Hủy/hết hạn: **release** reservation một lần | [D] để thống nhất postcondition [U] | Tránh oversell và double spend; INT-05–08 |
+| SP-11 | Tạo đơn `PENDING`: **atomic reservation** của SKU, coupon quota và điểm; không trừ điểm/đánh dấu mã đã dùng. `PAID`: chuyển reservation sang tiêu thụ. Hủy/hết hạn: **release** reservation một lần | [D] để thống nhất postcondition [U] | Tránh oversell và double spend; INT-05–08 |
 | SP-12 | Đơn chờ thanh toán hết hạn sau **10 phút** kể từ tạo; tối đa **3 payment attempts**/đơn. Khách được retry khi attempt `FAILED` với **key mới**; retry mạng của *cùng attempt* giữ **key cũ** | [D] | Tách retry nghiệp vụ và retry kỹ thuật; TC-11/12 |
 | SP-13 | `POST /orders` và `POST /payments` yêu cầu Idempotency-Key, phạm vi theo actor+operation+payload fingerprint; cùng key+same payload trả cùng kết quả logic, khác payload trả `409`; lưu key ≥24 giờ; kết quả payment event phải dedupe bằng `provider_event_id`/`provider_payment_id` unique | [D],[S] | HTTP POST mặc định không idempotent; INT-08/09 |
 | SP-14 | Nếu payment timeout/chưa rõ, đặt payment attempt `UNKNOWN`, query status; **không tự đánh dấu FAILED hoặc tạo payment mới**. Hết 10 phút chỉ cancel nếu xác nhận không có thành công; late success được đánh dấu cần xử lý, không âm thầm chuyển đơn đã hủy thành PAID | [D],[S] | Tránh xác nhận sai trạng thái và trừ hàng hai lần; INT-10 |
-| SP-15 | Order PENDING_PAYMENT→PAID→PREPARING→READY→COMPLETED; pending→CANCELLED hợp lệ. STAFF mới chuyển pha chế, ADMIN chỉ giám sát. Payment PENDING/SUCCESS/FAILED/UNKNOWN tách Order, mapping INITIATED/SUCCEEDED cũ. | Quyết định P0 | TC-13–17; không hủy/refund sau PAID trong MVP |
+| SP-15 | Order PENDING→PAID→PREPARING→READY→COMPLETED; pending→CANCELLED hợp lệ. STAFF mới chuyển pha chế, ADMIN chỉ giám sát. Payment PENDING/SUCCESS/FAILED/UNKNOWN tách Order, mapping INITIATED/SUCCEEDED cũ. | Quyết định P0 | TC-13–17; không hủy/refund sau PAID trong MVP |
 | SP-16 | Thông báo in-app (trang kết quả và xem trạng thái), **không hứa** SMS/push; nhân viên chỉ thấy đơn `PAID` trở đi; quản lý được quyền quản trị qua backend RBAC | [U],[D] | Tránh mở rộng ngoài phạm vi; TC-16 |
 
 ### 2.1 Công thức chuẩn và phép thử mẫu
@@ -47,7 +47,7 @@
 2. PostgreSQL transaction khóa/atomic-update SKU, quota coupon và điểm; tạo order snapshot + reservations + expiry. Nếu bất kỳ kiểm tra nào thất bại thì **rollback toàn bộ**.
 3. Gửi thanh toán ra cổng giả lập **sau khi commit** transaction tạo đơn (không giữ DB lock khi chờ mạng); trạng thái attempt lưu riêng. Callback/response được xác minh bằng payment ID, order ID, amount, event ID từ nguồn mô phỏng đáng tin cậy.
 4. Thành công: transaction xác nhận order chưa thanh toán, duy nhất hóa payment, `on_hand -= qty; reserved -= qty` (bán), điểm/coupon `reserved → consumed`, status `PAID`, tạo in-app event. Duplicate event trả no-op.
-5. Thất bại rõ ràng: order vẫn PENDING_PAYMENT trong TTL, giữ reservations để có thể retry; khách có thể hủy để giải phóng. Hết hạn và không có UNKNOWN chưa giải quyết: cancel/release; cùng kết quả nếu worker chạy lại.
+5. Thất bại rõ ràng: order chuyển PAYMENT_FAILED trong TTL, giữ reservations để có thể retry; khách có thể hủy để giải phóng. Hết hạn và không có UNKNOWN chưa giải quyết: cancel/release; cùng kết quả nếu worker chạy lại.
 6. UNKNOWN: hỏi lại provider/status; không tự tạo lần charge khác hoặc cancel nếu còn giao dịch chưa được xác định. Với mock-provider, seed scenario cho success/fail/timeout/late-event để test.
 
 ## 3. Sổ chuẩn/tham chiếu (không trích nguyên văn văn bản có bản quyền)
@@ -85,8 +85,8 @@
 | IMP-05 | Use-case Task1.3 vẽ "cập nhật đơn/gửi thông báo" `extend` vào Đặt hàng dù hoàn tất sau thành công là bắt buộc | Chuyển thành luồng sau thành công của Thanh toán/Đặt hàng, không là optional extension |
 | IMP-06 | UC overview vẽ quản lý người dùng/khuyến mãi/thực đơn nhưng SRS cũ ưu tiên Should | Bản mới thống nhất Must nếu vẫn nằm trong phạm vi bản demo cuối |
 | IMP-07 | Đăng ký OTP và đăng nhập mật khẩu chưa có bước thiết lập mật khẩu | P0 thay bằng nhập email/password trước Gmail OTP; sửa UC/Activity nguồn theo checklist |
-| IMP-08 | "Thanh toán thất bại" trộn vào trạng thái đơn | Tách payment attempt FAILED/UNKNOWN với order PENDING_PAYMENT |
-| IMP-09 | Dùng điểm trong checkout không có cơ chế tích điểm | SP-08 thêm quy tắc tích điểm khi COMPLETED; demo có seed user với điểm ban đầu |
+| IMP-08 | "Thanh toán thất bại" trộn vào trạng thái đơn | Payment FAILED → Order PAYMENT_FAILED; Payment UNKNOWN giữ Order PENDING |
+| IMP-09 | Dùng điểm trong checkout không có cơ chế tích điểm | SP-08 thêm quy tắc tích điểm khi PAID; demo có seed user với điểm ban đầu |
 
 **Mọi sơ đồ đã có vẫn là bản thiết kế nhóm cung cấp, chưa tự động được sửa bởi việc soạn tài liệu này.** Chỉ sơ đồ tổng quan `.puml` trong bộ bàn giao là bản mẫu đồng bộ; hãy cập nhật nguồn Visual Paradigm/Draw.io của nhóm theo IMP-xx.
 
@@ -105,3 +105,18 @@ Bổ sung: giữ 16 bảng, thêm đúng 5 bảng có mục đích theo [databas
 | UML-SOURCE | Activity/Sequence/VP Class nguồn và Assignment PDF | Chưa có trong repo đã kiểm tra; không tuyên bố đã chỉnh |
 
 IMP-xx và danh sách tham chiếu chuẩn ở trên là lịch sử/nguồn tham khảo; phần P0 mới thay thế mô tả phone/sandbox/OWNER cũ. Kết quả tests cũ không tự là nghiệm thu quyết định mới.
+
+## Assignment alignment — 2026-11-09
+
+Assignment 1 là tiêu chí cụ thể cho MVP kế thừa bởi Assignment 2. Tạo đơn PENDING; thanh toán thất bại đã xác minh chuyển PAYMENT_FAILED và giữ giỏ/reservation trong TTL. Retry hợp lệ chuyển PENDING, thành công chuyển PAID. UNKNOWN không được coi là FAILED, không retry khi chưa xác minh. EARN ghi đúng một lần tại PAID, không cộng thêm ở COMPLETED. Giỏ chỉ được dọn sau SUCCESS và chỉ khi version còn khớp snapshot checkout; thay đổi mới của khách được giữ nguyên. Header có badge số lượng. API bổ sung GET /api/orders/me và POST /api/payments {orderId, method}; các route hiện hữu vẫn hoạt động.
+
+
+## Hủy PAID và hoàn tiền mô phỏng — 2026-11-09
+
+Theo nhánh PAID -> CANCELLED của Assignment 1, CUSTOMER được hủy đơn của mình trước PREPARING. POST /api/orders/:id/cancel nhận {expectedVersion} và Idempotency-Key; version bắt buộc cho PAID. PENDING/PAYMENT_FAILED tiếp tục release HELD; chặn attempt PENDING/UNKNOWN. PREPARING/READY/COMPLETED không hủy.
+
+Mock full refund thực hiện trong một transaction serializable, khóa Order dùng chung với STAFF nhận pha chế: Refund(provider=MOCK,status=SUCCESS,amount=Payment.amount), Order CANCELLED và history actor/version; Payment gốc vẫn SUCCESS. Một Refund duy nhất cho mỗi Payment và khóa idempotency ngăn hoàn trùng. Hoàn onHand theo snapshot quantity, không sửa reserved lần nữa; reservation CONSUMED được giữ làm lịch sử tiêu thụ gốc. Coupon usedCount giảm một lần, không âm, không bật lại mã. REFUND hoàn đúng điểm REDEEM; EARN_REVERSAL thu hồi đúng EARN ledger, không tính lại bằng giá hiện tại.
+
+Nếu thiếu ledger hoặc số dư sau hoàn/thu hồi thấp hơn reservedPoints: lỗi LOYALTY_RECONCILIATION_REQUIRED, không ghi Refund hoặc thay đổi tài nguyên. Không làm điểm âm, không đụng đến điểm đang giữ ở đơn khác. Nếu bước nào lỗi, rollback cả Refund, stock, coupon, ledger và Order. Khách nhận thông báo liên hệ cửa hàng để đối soát.
+
+VNPay bị chặn bằng EXTERNAL_REFUND_UNSUPPORTED, không gửi yêu cầu refund ngoài hệ thống, không giả Refund SUCCESS. Các trạng thái Refund REQUESTED/PENDING/FAILED/UNKNOWN là khả năng mô hình, chưa phải adapter gateway đã triển khai. Hoàn tiền ở đây là mô phỏng, không có tiền thật.

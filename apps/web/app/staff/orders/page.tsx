@@ -3,7 +3,7 @@ import { OrdersView } from "../../../components/orders/orders-view";
 export default function StaffPage() {
   return (
     <SiteFrame>
-      <section className="section">
+      <section className="section staff-board-page">
         <div className="container">
           <OrdersView staff />
         </div>

@@ -18,6 +18,28 @@ Catalog bàn giao có 25 Product, 50 Size và ảnh tương ứng. Database loca
 
 Đăng ký tài khoản thật, xác minh OTP rồi đăng nhập. Bootstrap ADMIN phải dùng quy trình được chủ cửa hàng phê duyệt tại [hướng dẫn triển khai](docs/deployment.md); không có mật khẩu/admin mặc định.
 
-VNPay chỉ Sandbox, cần merchant và IPN HTTPS riêng; chưa có credentials thì phần thanh toán báo chưa cấu hình. Mock bị tắt mặc định. Xem [báo cáo Checkout/VNPay](docs/architecture/stage2-checkout-vnpay-report.md) và các điểm chưa nghiệm thu trước khi sử dụng gateway thực tế.
+Theo Assignment 2 §5.1 và §7.1, luồng chính dùng **Ví/Thẻ mô phỏng**, không thu tiền thật. Tại `apps/api/.env`, đặt `ENABLE_MOCK_PAYMENTS=true`, `MOCK_PAYMENT_OUTCOME=SUCCESS`; khởi động lại API sau khi đổi cấu hình. Khách tạo đơn rồi chọn Ví/Thẻ mô phỏng tại chi tiết đơn. Backend xác nhận Payment `SUCCESS`, Order `PAID` và tiêu thụ tồn kho một lần. Dùng `FAILED` hoặc `UNKNOWN` để kiểm thử lỗi trên database test; khách không được tự gửi kết quả thanh toán. `UNKNOWN` không cho tạo payment mới khi chưa xác minh xong.
+
+VNPay Sandbox giữ như tính năng mở rộng; giao diện ẩn mặc định. Muốn thử riêng, đặt `NEXT_PUBLIC_ENABLE_VNPAY_SANDBOX=true` trước khi build web (Docker: `--build-arg NEXT_PUBLIC_ENABLE_VNPAY_SANDBOX=true`) và cấu hình merchant/IPN hợp lệ. Không chuyển các giao dịch VNPay cũ sang mock. Cấu hình mẫu production demo bật mock; việc sửa file local không cập nhật AWS đang chạy. Xem [báo cáo Checkout/VNPay](docs/architecture/stage2-checkout-vnpay-report.md).
 
 Kiểm tra: `npm run lint`, `npm test`, `npm run build` trong từng app; API có `npm run test:p2`, `npm run test:p3`, `npm run test:stage2` dùng database test riêng. Không chạy fixture vào database vận hành.
+
+## Nhân viên và duyệt đơn
+
+Nhân viên đăng nhập rồi vào **Tài khoản → Đơn cần phục vụ** (`/staff/orders`).
+Chỉ đơn đã thanh toán mới vào hàng đợi, ưu tiên đơn cũ trước. Thao tác:
+**Duyệt đơn và pha chế → Đánh dấu sẵn sàng → Xác nhận đã giao**.
+Backend kiểm tra quyền STAFF, phiên bản đơn và thứ tự trạng thái; mỗi bước tạo
+lịch sử/thông báo, chỉ COMPLETED mới cộng điểm một lần. Nhân viên không tự đổi
+Payment thành SUCCESS và không tiếp nhận đơn chưa thanh toán.
+
+Tạo tài khoản demo trên database local: tại `apps/api`, chạy
+`node scripts/create-local-staff.cjs [email-demo]`. Script chỉ cho phép database
+localhost, tạo STAFF mới với mật khẩu ngẫu nhiên và email đã xác minh cho demo;
+không gửi email, không ghi mật khẩu vào source, không sửa tài khoản đã tồn tại.
+Không dùng script này để cấp tài khoản production.
+
+
+## Hoàn thiện delivery
+
+Pipeline CD đã chuẩn bị tại `.github/workflows/cd.yml`; xem [cấu hình và rollback](deploy/CD-SETUP.md), [UML nguồn và bản xuất](docs/diagrams/README.md). Chưa có minh chứng CD chạy trên GitHub cho các thay đổi chưa commit này.

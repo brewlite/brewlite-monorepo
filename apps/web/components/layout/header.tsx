@@ -6,6 +6,7 @@ import LoginForm from "../auth/login-form";
 import { useAuthUser, setAuthUser } from "../../lib/auth-store";
 import { authError, logout } from "../../services/auth.service";
 import { usePathname } from "next/navigation";
+import { useCart } from "../cart/cart-provider";
 import { setMenuQuery, useMenuView } from "../../lib/menu-view";
 
 const links = [
@@ -112,7 +113,7 @@ function AccountMenu() {
               {user.role === "ADMIN" && <Link href="/admin" role="menuitem">Quản trị</Link>}
               <button type="button" role="menuitem" disabled={loggingOut} onClick={async () => {
                 setLoggingOut(true); setAuthMessage("");
-                try { await logout(); setAuthUser(null); setHover(false); setPinned(false); }
+                try { await logout(); setAuthUser(null); setHover(false); setPinned(false); window.location.replace('/'); }
                 catch (error) { setAuthMessage(authError(error)); }
                 finally { setLoggingOut(false); }
               }}>Đăng xuất</button>
@@ -149,6 +150,7 @@ function HeaderSearch() {
   );
 }
 export function Header() {
+  const { count } = useCart();
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
 
@@ -174,7 +176,7 @@ export function Header() {
                     href={link.href}
                     onClick={() => setOpen(false)}
                   >
-                    {link.label}
+                    {link.label}{link.href === "/cart" && <span className="cart-count-badge" aria-label={`${count} sản phẩm trong giỏ`}>{count}</span>}
                   </Link>
                 </li>
               ))}

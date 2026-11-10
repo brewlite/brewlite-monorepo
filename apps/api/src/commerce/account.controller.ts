@@ -44,6 +44,13 @@ export class AccountController {
       take: 100,
     });
   }
+  @Patch('notifications/read-all') async readAll(@Req() r: AuthRequest) {
+    const result = await this.db.notification.updateMany({
+      where: { userId: r.principal.user.id, isRead: false, order: { isLegacy: false } },
+      data: { isRead: true },
+    });
+    return { count: result.count };
+  }
   @Patch('notifications/:id/read') async read(
     @Req() r: AuthRequest,
     @Param('id') id: string,

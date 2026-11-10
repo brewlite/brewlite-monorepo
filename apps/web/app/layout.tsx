@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="vi" className={`${fraunces.variable} ${dmSans.variable}`}>
+    <html lang="vi" data-scroll-behavior="smooth" className={`${fraunces.variable} ${dmSans.variable}`}>
       <body><PwaRegistration />{children}</body>
     </html>
   );

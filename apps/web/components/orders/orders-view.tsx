@@ -1,13 +1,16 @@
 "use client";
-import Link from "next/link";
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from "react";
 import { getStore, sendStore, type Order } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
-import { formatPrice } from "../../lib/format-price";
 import { useAuthUser, refreshAuth } from "../../lib/auth-store";
-import { startVNPay } from '../../services/payment.service';
+import { startVNPay, startMockPayment } from '../../services/payment.service';
+import { CustomerOrders } from './customer-orders';
+import './staff-order-board.css';
+import { StaffOrderBoard } from './staff-order-board';
 export const statusName: Record<string, string> = {
-  PENDING_PAYMENT: "Chờ thanh toán",
+  PENDING: "Chờ thanh toán",
+  PAYMENT_FAILED: "Thanh toán thất bại",
   PAID: "Đã thanh toán",
   PREPARING: "Đang pha chế",
   READY: "Sẵn sàng nhận",
@@ -22,37 +25,57 @@ export function OrdersView({
   staff?: boolean;
 }) {
   const user = useAuthUser();
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [now, setNow] = useState(0);
   const keys = useRef(new Map<string, string>());
   const endpoint = staff ? "/staff/orders" : id ? `/orders/${id}` : "/orders";
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    let inFlight = false;
+    let shouldPoll = true;
+    let lastLoad = 0;
     async function load() {
+      if (!active || inFlight) return;
+      clearTimeout(timer);
+      if (document.hidden) return;
+      inFlight = true;
+      lastLoad = Date.now();
       try {
         const data = await getStore<Order | Order[]>(endpoint);
         if (active) {
-          setOrders(Array.isArray(data) ? data : [data]);
+          const rows = Array.isArray(data) ? data : [data];
+          shouldPoll = staff || rows.some((o) => !['COMPLETED', 'CANCELLED'].includes(o.status));
+          setOrders(rows);
+          setNow(Date.now());
           setError("");
         }
       } catch (e) {
         if (active) setError(authError(e));
       } finally {
+        inFlight = false;
         if (active) setLoading(false);
+        if (active && shouldPoll && !document.hidden) timer = setTimeout(() => void load(), 15000);
       }
     }
+    const resume = () => {
+      if (!document.hidden && Date.now() - lastLoad >= 15000) void load();
+    };
     void load();
-    const timer = setInterval(() => {
-      if (!document.hidden) void load();
-    }, 5000);
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('focus', resume);
     return () => {
       active = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('focus', resume);
     };
-  }, [endpoint, attempt]);
+  }, [endpoint, attempt, staff]);
   async function action(
     order: Order,
     name: string,
@@ -65,7 +88,7 @@ export function OrdersView({
     setPending(true);
     setError("");
     try {
-      await sendStore(
+      const result = !staff && name === 'payments' ? await startMockPayment(order.id, (body as { method: 'WALLET' | 'CARD' }).method) : await sendStore<{ id?: string }>(
         staff
           ? `/staff/orders/${order.id}/status`
           : `/orders/${order.id}/${name}`,
@@ -74,144 +97,19 @@ export function OrdersView({
         key,
       );
       keys.current.delete(operation);
+      if (!staff && name === 'payments' && result?.id) router.push(`/payments/result?paymentId=${encodeURIComponent(result.id)}`);
       setAttempt((a) => a + 1);
-      void refreshAuth();
+      if (!staff) void refreshAuth();
     } catch (e) {
       setError(authError(e));
     } finally {
       setPending(false);
     }
   }
-  const next: Record<string, string> = {
-    PAID: "PREPARING",
-    PREPARING: "READY",
-    READY: "COMPLETED",
-  };
-  return (
-    <div className="store-workspace">
-      <h1>
-        {staff
-          ? "Đơn cần phục vụ"
-          : id
-            ? "Chi tiết đơn hàng"
-            : "Lịch sử đơn hàng"}
-      </h1>
-      {user && (
-        <p>
-          {user.fullName} · {user.loyaltyPoints} điểm thưởng
-        </p>
-      )}
-      {loading && <p role="status">Đang tải đơn từ máy chủ…</p>}
-      {error && (
-        <p role="alert">
-          {error}{" "}
-          <button onClick={() => setAttempt((a) => a + 1)}>Thử lại</button>{" "}
-          {!user && <Link href="/login">Đăng nhập</Link>}
-        </p>
-      )}
-      {!loading && !error && !orders.length && <p>Chưa có đơn hàng phù hợp.</p>}
-      {orders.map((o) => (
-        <article className="store-order" key={o.id}>
-          <h2>
-            <Link href={staff ? "#" : `/orders/${o.id}`}>{o.orderCode}</Link>
-          </h2>
-          <p>
-            <strong>{statusName[o.status] || o.status}</strong> ·{" "}
-            {new Date(o.createdAt).toLocaleString("vi-VN")} ·{" "}
-            {formatPrice(o.finalTotal)}đ
-          </p>
-          {(id || staff) && (
-            <>
-              <ul>
-                {o.items.map((i) => (
-                  <li key={i.id}>
-                    <strong>{i.productName}</strong> · Size {i.sizeName} ·{" "}
-                    {i.quantity} ly · {formatPrice(i.lineTotal)}đ<br />
-                    {i.toppings.map((t) => t.toppingName).join(", ") ||
-                      "Không topping"}
-                    {i.note && <p>Ghi chú: {i.note}</p>}
-                  </li>
-                ))}
-              </ul>
-              <p>
-                Lịch sử:{" "}
-                {o.history
-                  .map((h) => statusName[h.toStatus] || h.toStatus)
-                  .join(" → ")}
-              </p>
-              {o.payments.map((p) => (
-                <p key={p.id}>
-                  {p.providerPaymentId?.startsWith('vnpay:') ? 'VNPay Sandbox' : `Thanh toán mô phỏng ${p.method}`}: {p.status} ·{" "}
-                  {formatPrice(p.amount)}đ
-                  {p.providerPaymentId?.startsWith('vnpay:') && <>{' '}<Link href={`/payments/result?paymentId=${p.id}`}>Kiểm tra kết quả</Link></>}
-                </p>
-              ))}
-              {!staff && o.status === "PENDING_PAYMENT" && (
-                <>
-                  <p>
-                    Hạn giữ:{" "}
-                    {o.expiresAt
-                      ? new Date(o.expiresAt).toLocaleTimeString("vi-VN")
-                      : "—"}
-                    . Chỉ dùng môi trường Sandbox, không thanh toán tiền thật.
-                  </p>
-                  <div className="store-actions">
-                    <button disabled={pending || o.payments.length >= 3 || o.payments.some((p) => ['PENDING', 'UNKNOWN'].includes(p.status))} onClick={async () => {
-                      setPending(true); setError('');
-                      try { const result = await startVNPay(o.id); if (result.url) window.location.assign(result.url); else setAttempt((value) => value + 1); }
-                      catch (caught) { setError(authError(caught)); } finally { setPending(false); }
-                    }}>Thanh toán VNPay Sandbox</button>
-                    {(process.env.NEXT_PUBLIC_ENABLE_MOCK_PAYMENTS === 'true' ? ["WALLET", "CARD"] : []).map((method) => (
-                      <button
-                        key={method}
-                        disabled={
-                          pending ||
-                          o.payments.length >= 3 ||
-                          o.payments.some((p) =>
-                            ["PENDING", "UNKNOWN"].includes(p.status),
-                          )
-                        }
-                        onClick={() => void action(o, "payments", { method })}
-                      >
-                        {method === "WALLET" ? "Ví mô phỏng" : "Thẻ mô phỏng"}
-                      </button>
-                    ))}
-                    <button
-                      disabled={
-                        pending ||
-                        o.payments.some((p) =>
-                          ["PENDING", "UNKNOWN"].includes(p.status),
-                        )
-                      }
-                      onClick={() => void action(o, "cancel", {})}
-                    >
-                      Hủy đơn
-                    </button>
-                  </div>
-                </>
-              )}
-              {staff && user?.role === "STAFF" && next[o.status] && (
-                <button
-                  disabled={pending}
-                  onClick={() =>
-                    void action(
-                      o,
-                      "status",
-                      {
-                        nextStatus: next[o.status],
-                        expectedVersion: o.version,
-                      },
-                      "patch",
-                    )
-                  }
-                >
-                  {statusName[next[o.status]]}
-                </button>
-              )}
-            </>
-          )}
-        </article>
-      ))}
-    </div>
-  );
+  if (!staff) return <CustomerOrders now={now} id={id} orders={orders} user={user} loading={loading} error={error} pending={pending} names={statusName} retry={() => setAttempt((a) => a + 1)} action={(o, name, body) => void action(o, name, body)} vnpay={async (o) => {
+    setPending(true); setError('');
+    try { const result = await startVNPay(o.id); if (result.url) window.location.assign(result.url); else setAttempt((value) => value + 1); }
+    catch (caught) { setError(authError(caught)); } finally { setPending(false); }
+  }} />;
+  return <StaffOrderBoard orders={orders} user={user} loading={loading} pending={pending} error={error} retry={() => setAttempt((a) => a + 1)} update={(order, nextStatus) => void action(order, 'status', { nextStatus, expectedVersion: order.version }, 'patch')} />;
 }

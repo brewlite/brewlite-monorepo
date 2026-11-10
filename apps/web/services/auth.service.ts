@@ -1,7 +1,7 @@
 import axios from "axios";
 import { apiUrl } from "./product.service";
 
-export type AuthUser = { id: string; fullName: string; email: string; role: "CUSTOMER" | "STAFF" | "MANAGER" | "ADMIN"; emailVerifiedAt: string; loyaltyPoints: number };
+export type AuthUser = { id: string; fullName: string; email: string; role: "CUSTOMER" | "STAFF" | "ADMIN"; emailVerifiedAt: string; loyaltyPoints: number };
 export const authHttp = axios.create({ withCredentials: true, timeout: 15000 });
 let refreshing: Promise<unknown> | null = null;
 authHttp.interceptors.response.use((response) => response, async (error) => {

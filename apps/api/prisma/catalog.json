@@ -91,7 +91,7 @@
       "description": "Hạt cà phê Robusta phối Arabica đậm đà vị truyền thống hòa quyện cùng sữa đặc béo ngậy.",
       "basePrice": "29000",
       "imageUrl": "/images/products/ca-phe-sua-da.jpg",
-      "isAvailable": true,
+      "isAvailable": false,
       "categoryId": "3fba286c-3bea-4ea3-87d1-b27581c8bd6e"
     },
     {

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type OrderStatus =
-  | "PENDING_PAYMENT"
+  | "PENDING"
   | "PAID"
   | "PREPARING"
   | "READY"
@@ -232,7 +232,7 @@ const demoOrders: Order[] = [
     id: "5",
     orderCode: "BL-20261107-005",
     createdAt: "2026-11-07T11:10:00",
-    status: "PENDING_PAYMENT",
+    status: "PENDING",
     items: [
       {
         name: "Trà sữa truyền thống",
@@ -257,7 +257,7 @@ const statusInfo: Record<
   OrderStatus,
   { label: string; className: string }
 > = {
-  PENDING_PAYMENT: {
+  PENDING: {
     label: "Chờ thanh toán",
     className: "bg-[#FFF1DA] text-[#965C15]",
   },
@@ -308,7 +308,7 @@ function formatDate(value: string) {
 function filterOrder(order: Order, filter: Filter) {
   switch (filter) {
     case "PENDING":
-      return order.status === "PENDING_PAYMENT";
+      return order.status === "PENDING";
     case "PROCESSING":
       return ["PAID", "PREPARING", "READY"].includes(order.status);
     case "COMPLETED":
@@ -597,7 +597,7 @@ function OrderDetailModal({
           </div>
         )}
 
-        {order.status === "PENDING_PAYMENT" && (
+        {order.status === "PENDING" && (
           <div className="mt-5 rounded-xl bg-[#FFF1DA] p-3 text-sm text-[#965C15]">
             Đơn đang chờ thanh toán. Chức năng tiếp tục thanh toán
             sẽ được bổ sung khi kết nối Backend.

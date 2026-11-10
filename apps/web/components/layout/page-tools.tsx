@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 export function BackLink() {
   const pathname = usePathname() ?? "";
-  if (!pathname || pathname === "/") return null;
+  if (!pathname || pathname === "/" || pathname === "/orders" || pathname.startsWith('/orders/') || pathname === '/payments/result') return null;
   const fallback = pathname.startsWith("/products/") ? "/menu" : "/";
 
   function goBack(event: MouseEvent<HTMLAnchorElement>) {

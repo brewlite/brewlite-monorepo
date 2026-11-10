@@ -1,0 +1,46 @@
+@startuml
+!pragma layout smetana
+!theme plain
+title BrewLite — AWS EC2 và pipeline CD đã chuẩn bị
+node "Thiết bị khách" {
+ artifact "Browser / Next.js PWA" as Browser
+}
+cloud Internet
+node "AWS EC2 Ubuntu 24.04\nap-southeast-2 · 3.107.247.123" as EC2 {
+ node "Docker Compose: brewlite" {
+  node "Caddy :80/:443\nTLS + filtered access log" as Caddy
+  node "Next.js web :3000\nstandalone" as Web
+  node "NestJS api :3001\nJWT / RBAC / mock payment" as API
+  database "PostgreSQL 16 :5432\nkhông public port" as DB
+  artifact "postgres_data\npersistent volume" as Volume
+  artifact "uploads/\npersistent bind mount" as Upload
+ }
+ artifact "deploy/.env.production\nprivate runtime secrets" as Secrets
+}
+node "GitHub Actions\nCD prepared, chưa chạy nghiệm thu" as CI
+cloud "GHCR\nimages tagged commit SHA\nprepared, chưa publish" as Registry
+cloud "Gmail SMTP / VNPay Sandbox\nextensions" as External
+Browser --> Internet : HTTPS
+Internet --> Caddy : HTTPS :443
+Caddy --> Web : internal HTTP :3000
+Caddy --> API : /api/* HTTP :3001
+API --> DB : internal PostgreSQL
+DB --> Volume
+API --> Upload
+Secrets ..> API
+CI --> Registry : build + push linux/amd64
+CI --> EC2 : verified SSH :22\nproduction environment approval
+Registry --> API : image pull
+Registry --> Web : image pull
+API --> External : TLS / HTTPS
+note bottom of CI
+Quality gates -> images -> registry -> approval -> backup
+-> migration gate -> deploy -> HTTPS smoke.
+Rollback image only when schema remains compatible.
+end note
+note bottom of EC2
+GET /api/health, /api/products.
+Local và CI dùng database tách biệt production.
+UFW/SG/NACL chưa được sơ đồ này chứng nhận.
+end note
+@enduml

@@ -10,7 +10,7 @@ describe("header account menu", () => {
     const nav = within(screen.getByRole("navigation", { name: "Chính" }));
     expect(nav.getByRole("link", { name: "TRANG CHỦ" }).getAttribute("href")).toBe("/");
     expect(nav.getByRole("link", { name: "THỰC ĐƠN" }).getAttribute("href")).toBe("/menu");
-    expect(nav.getByRole("link", { name: "GIỎ HÀNG" }).getAttribute("href")).toBe("/cart");
+    expect(nav.getByRole("link", { name: /GIỎ HÀNG/ }).getAttribute("href")).toBe("/cart");
     expect(nav.getByRole("link", { name: "LỊCH SỬ MUA HÀNG" }).getAttribute("href")).toBe("/orders");
     expect(nav.getByRole("searchbox", { name: "Tìm đồ uống" })).toBeTruthy();
     expect(screen.queryByRole("menu", { name: "Tài khoản" })).toBeNull();
