@@ -6,10 +6,12 @@ export class EmailService {
   async sendVerification(email: string, code: string) {
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
-    if (!user || !pass)
-      throw new ServiceUnavailableException(
-        'Dịch vụ email chưa được cấu hình.',
-      );
+    if (!user || !pass) {
+      console.log(`\n======================================================`);
+      console.log(`🔑 [DEV MODE OTP] Mã xác minh email cho ${email}: ${code}`);
+      console.log(`======================================================\n`);
+      return;
+    }
     const transport = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
