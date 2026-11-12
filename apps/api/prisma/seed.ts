@@ -65,7 +65,8 @@ async function main() {
   const productsData = [
     {
       name: 'Cà phê sữa đá BrewLite',
-      description: 'Hạt cà phê Robusta phối Arabica đậm đà vị truyền thống hòa quyện cùng sữa đặc béo ngậy.',
+      description:
+        'Hạt cà phê Robusta phối Arabica đậm đà vị truyền thống hòa quyện cùng sữa đặc béo ngậy.',
       basePrice: 29000,
       imageUrl: '/images/products/ca-phe-sua-da.jpg',
       categoryId: catCoffee.id,
@@ -78,7 +79,8 @@ async function main() {
     },
     {
       name: 'Latte Hạnh Nhân',
-      description: 'Espresso thơm dịu cùng sữa tươi thanh trùng và lớp bọt sữa mịn màng kèm sốt hạnh nhân.',
+      description:
+        'Espresso thơm dịu cùng sữa tươi thanh trùng và lớp bọt sữa mịn màng kèm sốt hạnh nhân.',
       basePrice: 39000,
       imageUrl: '/images/products/latte-hanh-nhan.jpg',
       categoryId: catCoffee.id,
@@ -90,7 +92,8 @@ async function main() {
     },
     {
       name: 'Trà Đào Cam Sả',
-      description: 'Vị trà thơm nồng kết hợp hương cam tươi chua ngọt, miếng đào giòn rụm và sả thơm thư giãn.',
+      description:
+        'Vị trà thơm nồng kết hợp hương cam tươi chua ngọt, miếng đào giòn rụm và sả thơm thư giãn.',
       basePrice: 35000,
       imageUrl: '/images/products/tra-dao-cam-xa.jpg',
       categoryId: catTea.id,
@@ -102,7 +105,8 @@ async function main() {
     },
     {
       name: 'Trà Sữa Ô Long Nướng',
-      description: 'Trà Ô long được sao nướng đậm hương thơm khói kết hợp sữa béo ngậy chuẩn vị Đài Loan.',
+      description:
+        'Trà Ô long được sao nướng đậm hương thơm khói kết hợp sữa béo ngậy chuẩn vị Đài Loan.',
       basePrice: 38000,
       imageUrl: '/images/products/tra-sua-olong-nuong.jpg',
       categoryId: catMilkTea.id,
@@ -114,7 +118,8 @@ async function main() {
     },
     {
       name: 'Matcha Đá Xay Kem Tuyết',
-      description: 'Matcha Uji Nhật Bản nguyên chất xay mịn cùng sữa béo và lớp bông kem ngọt ngào.',
+      description:
+        'Matcha Uji Nhật Bản nguyên chất xay mịn cùng sữa béo và lớp bông kem ngọt ngào.',
       basePrice: 45000,
       imageUrl: '/images/products/matcha-da-xoay-kem-tuyet.jpg',
       categoryId: catFreeze.id,
@@ -126,7 +131,8 @@ async function main() {
     },
     {
       name: 'Trà Vải Hoa Hồng',
-      description: 'Nước cốt trà đen thanh mát kết hợp quả vải ngâm ngọt mọng và hương hoa hồng quyến rũ.',
+      description:
+        'Nước cốt trà đen thanh mát kết hợp quả vải ngâm ngọt mọng và hương hoa hồng quyến rũ.',
       basePrice: 36000,
       imageUrl: '/images/products/tra-vai-hoa-hong.jpg',
       categoryId: catTea.id,
@@ -172,7 +178,8 @@ async function main() {
   console.log('✅ Đã nạp bảng: products, sizes');
 
   // 4. Users (Staff, Customer). ADMIN is provisioned only through controlled bootstrap.
-  const passwordHash = '$2b$10$ep5B6x9.q/Ue7sV2J5n.UeB5rQ3L2Kz9.O4s8c.u4U4x5y6z7w8v'; // admin123
+  const passwordHash =
+    '$2b$10$ep5B6x9.q/Ue7sV2J5n.UeB5rQ3L2Kz9.O4s8c.u4U4x5y6z7w8v'; // admin123
 
   const staffUser = await prisma.user.upsert({
     where: { email: 'staff@brewlite.vn' },
@@ -456,7 +463,9 @@ async function main() {
       },
     });
   }
-  console.log('✅ Đã nạp bảng: orders, order_items, order_item_toppings, payments');
+  console.log(
+    '✅ Đã nạp bảng: orders, order_items, order_item_toppings, payments',
+  );
 
   // 8. LoyaltyTransactions (Lịch sử tích điểm)
   await prisma.loyaltyTransaction.deleteMany({
@@ -498,7 +507,8 @@ async function main() {
         userId: customerUser.id,
         type: NotificationType.PAYMENT_SUCCESS,
         title: 'Thanh toán thành công',
-        content: 'Đơn hàng ORD-20261101-001 trị giá 60.000đ đã được thanh toán qua Ví điện tử.',
+        content:
+          'Đơn hàng ORD-20261101-001 trị giá 60.000đ đã được thanh toán qua Ví điện tử.',
         isRead: true,
         createdAt: new Date('2026-11-01T09:32:20Z'),
       },
@@ -506,7 +516,8 @@ async function main() {
         userId: customerUser.id,
         type: NotificationType.ORDER_STATUS_UPDATED,
         title: 'Đơn hàng hoàn thành',
-        content: 'Đơn hàng ORD-20261101-001 đã giao thành công. Chúc bạn ngon miệng!',
+        content:
+          'Đơn hàng ORD-20261101-001 đã giao thành công. Chúc bạn ngon miệng!',
         isRead: true,
         createdAt: new Date('2026-11-01T10:00:00Z'),
       },
@@ -514,7 +525,8 @@ async function main() {
         userId: customerUser.id,
         type: NotificationType.PAYMENT_SUCCESS,
         title: 'Thanh toán thành công',
-        content: 'Đơn hàng ORD-20261102-002 trị giá 45.000đ đã được thanh toán qua Thẻ ngân hàng.',
+        content:
+          'Đơn hàng ORD-20261102-002 trị giá 45.000đ đã được thanh toán qua Thẻ ngân hàng.',
         isRead: false,
         createdAt: new Date('2026-11-02T14:16:10Z'),
       },

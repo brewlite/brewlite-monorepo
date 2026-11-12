@@ -123,10 +123,26 @@ export class OrdersController {
 @Roles('CUSTOMER')
 export class PaymentsController {
   constructor(private readonly service: CommerceService) {}
-  @Post() create(@Req() r: AuthRequest, @Body() b: CreatePaymentDto, @Headers('idempotency-key') key?: string) {
-    return this.service.pay(r.principal.user.id, b.orderId, { method: b.method }, key, r.ip);
+  // Compatibility with Kha's payment request body; use the shared transaction flow.
+  @Post() @HttpCode(200) async pay(
+    @Req() r: AuthRequest,
+    @Body() body: CreatePaymentDto,
+  ) {
+    const payment = await this.service.pay(
+      r.principal.user.id,
+      body.orderId,
+      { method: body.method },
+      body.idempotencyKey,
+      r.ip,
+    );
+    const order = await this.service.order(body.orderId, r.principal.user.id);
+    return { payment, order };
   }
-  @Post(':id/reconcile') @HttpCode(200) reconcile(@Req() r: AuthRequest, @Param('id') id: string) {
+
+  @Post(':id/reconcile') @HttpCode(200) reconcile(
+    @Req() r: AuthRequest,
+    @Param('id') id: string,
+  ) {
     return this.service.inquire(r.principal.user.id, id);
   }
   @Get(':id') detail(@Req() r: AuthRequest, @Param('id') id: string) {
@@ -139,6 +155,9 @@ export class StaffOrdersController {
   constructor(private readonly service: CommerceService) {}
   @Get() @Roles('STAFF', 'ADMIN') list() {
     return this.service.orders('', true, true);
+  }
+  @Get(':id') @Roles('STAFF', 'ADMIN') detail(@Param('id') id: string) {
+    return this.service.order(id);
   }
   @Patch(':id/status') @Roles('STAFF') update(
     @Req() r: AuthRequest,

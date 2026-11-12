@@ -227,8 +227,12 @@ model Order {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
-  items    OrderItem[]
-  payments Payment[]
+  items          OrderItem[]
+  payments       Payment[]
+  statusEvents   OrderStatusEvent[]
+
+  @@index([userId, createdAt, id])
+  @@index([status, createdAt, id])
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -305,6 +309,20 @@ model Promotion {
   createdAt     DateTime     @default(now())
 
   @@map("promotions")
+}
+
+// Append-only audit trail; actorId is a snapshot so deleting an account preserves audit.
+model OrderStatusEvent {
+  id         String      @id @default(uuid())
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actorId    String
+  fromStatus OrderStatus
+  toStatus   OrderStatus
+  createdAt  DateTime    @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_status_events")
 }
 
 model EmailVerification {

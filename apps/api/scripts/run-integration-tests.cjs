@@ -30,6 +30,7 @@ run([
   '--config',
   'test/jest-e2e.json',
   '--runInBand',
+  '--testPathIgnorePatterns=payments-db.e2e-spec|payment-orders-http.e2e-spec',
 ]);
 
 // P2 invariants run separately, never against the public or auth fixture schema.

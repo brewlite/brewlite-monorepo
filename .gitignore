@@ -153,3 +153,6 @@ vite.config.ts.timestamp-*
 /deploy/releases/
 /.incoming/
 /.deploy.lock
+
+# Public payment integration configuration template
+!apps/api/.env.payment.example

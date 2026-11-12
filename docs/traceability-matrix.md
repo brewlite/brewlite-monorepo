@@ -86,6 +86,26 @@ Phân loại: **CODE** = đã thấy source, chưa tự kết luận toàn bộ 
 | E5/A5 payment failed | FR-17/19/20/32 | TC-11/12/INT-10 | Retry hoặc cancel/release an toàn |
 | Timeout/UNKNOWN bổ sung | FR-20/32 | INT-10 | Reconcile, không kết luận sai/nhân đôi |
 
+## Cập nhật triển khai backend payment/orders — 2026-11-08
+
+Bảng baseline phía trên còn các trạng thái Planned cũ. Phần cập nhật này ghi bằng chứng
+cho Task 5.1 dấu chấm 5–6, không tự đánh dấu hoàn thành toàn bộ FR/NFR mở rộng.
+
+| Phạm vi | Code/evidence mới | Kết luận |
+|---|---|---|
+| FR-17, phần mock wallet/card | apps/api/src/payments/payments.controller.ts; payments.service.ts | Có HTTP endpoint, DTO, JWT; chưa có UI/UNKNOWN |
+| FR-18, xác nhận PAID | payment service + OrderStatusEvent migration | Atomic payment/order/audit/notification; chưa consume reservation/coupon/points theo SRS |
+| FR-19/20, retry/idempotency payment | payment service + test/payment-orders-http.e2e-spec.ts | Pass same-key/concurrency/fail/retry; không bao gồm cancel/TTL hoặc idempotency tạo đơn |
+| FR-21/22 | apps/api/src/orders/orders.controller.ts; orders.service.ts | Có API chi tiết/lịch sử theo owner, phân trang, snapshot và timeline |
+| FR-23 | staff-orders.controller.ts; orders.service.ts | Có API STAFF/MANAGER, chuyển tuần tự, actor audit, chống ghi lặp |
+| FR-10, phạm vi payment/orders | apps/api/src/access/access.guard.ts | JWT/access claims + DB role + ownership; chưa đại diện Auth/logout/revocation toàn hệ thống |
+| FR-24, phần dữ liệu | notification trong transaction và GET order detail | Có dữ liệu thông báo/trạng thái; frontend/push chưa triển khai |
+| Task 5.2, test backend phần phụ trách | test/payments-db.e2e-spec.ts + test/payment-orders-http.e2e-spec.ts | 21/21 integration local đạt; không phải E2E menu đến xác nhận |
+| CI của phần phụ trách | .github/workflows/payment-orders.yml | Có cấu hình PostgreSQL + quality gates; chưa chạy trên GitHub |
+
+Toàn backend: 18/18 unit tests, lint và npm run build đạt local.
+Hợp đồng bàn giao và các giới hạn: [payment-orders-api.md](payment-orders-api.md).
+
 ## P0 review gates và tài liệu test legacy
 
 [API contract](architecture/api-contract.md), [DB](architecture/database-baseline.md), [RBAC](architecture/rbac-matrix.md), [Auth](architecture/auth-session-spec.md), [state machine](architecture/order-payment-state-machine.md), [PR plan](architecture/implementation-plan.md) là nguồn chi tiết cho từng dòng.
@@ -125,3 +145,19 @@ Task 2/3: [UML source/export index](diagrams/README.md), [ADR-0002](architecture
 | External gateway boundary | VNPay EXTERNAL_REFUND_UNSUPPORTED | signed-success fixture then refusal, zero Refund records |
 
 PAID version is mandatory; unpaid requests without version remain backward compatible. All refund mutations in these tests are on dedicated databases, not operating transactions.
+
+## Kết quả ghép main vào nhánh payment/orders — 2026-11-08
+
+Hợp đồng runtime hiện tại nằm ở đầu [payment-orders-api.md](payment-orders-api.md).
+Phần evidence legacy 18 unit/21 integration phía trên là kết quả trước khi ghép,
+không thay thế kết quả kiểm tra app chung. CommerceModule là nguồn xử lý chính;
+POST /payments là adapter dùng auth/session, reservation, idempotency và settlement
+của main. GET staff order detail được bổ sung với quyền STAFF/ADMIN.
+Các module payment/orders cũ vẫn được kiểm tra riêng, không đăng ký trùng route.
+Kiểm thử hồi quy app chung: test/commerce.e2e-spec.ts kiểm tra cookie/origin/role,
+DTO, owner, retry liên đường dẫn, tồn kho chỉ consume một lần và staff detail.
+
+Kiểm tra local sau ghép: build và lint đạt; 64/64 unit tests; 21/21 integration
+module legacy; 23/23 HTTP integration trên AppModule chung (health/auth/catalog/commerce).
+Đã áp dụng đủ 5 migrations trên schema test mới và cập nhật DB test cũ thành công.
+GitHub CI và frontend/browser E2E của lần ghép này chưa chạy; không đánh dấu đã đạt.

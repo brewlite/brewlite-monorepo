@@ -27,7 +27,8 @@
     "test:p2": "node scripts/run-p2-tests.cjs",
     "test:p3": "node scripts/run-p2-tests.cjs p3",
     "test:stage2": "node scripts/run-p2-tests.cjs stage2",
-    "test:e2e": "node scripts/run-integration-tests.cjs"
+    "test:e2e": "node scripts/run-integration-tests.cjs",
+    "test:payments": "node scripts/run-payment-orders-tests.cjs"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

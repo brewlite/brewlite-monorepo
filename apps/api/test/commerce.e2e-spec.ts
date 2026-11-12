@@ -95,6 +95,31 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
         .set('Cookie', cookie)
         .set('Origin', 'http://localhost:3000')
         .set('Idempotency-Key', key);
+    it('payment compatibility endpoint requires session, allowed origin and valid DTO', async () => {
+      const payload = {
+        orderId: randomUUID(),
+        method: 'WALLET',
+        idempotencyKey: randomUUID(),
+      };
+      await request(app.getHttpServer())
+        .post('/api/payments')
+        .set('Origin', 'http://localhost:3000')
+        .send(payload)
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/payments')
+        .set('Cookie', customer)
+        .set('Origin', 'https://untrusted.example')
+        .send(payload)
+        .expect(403);
+      await post('/payments', customer)
+        .send({ ...payload, method: 'INVALID' })
+        .expect(400);
+      await post('/payments', customer)
+        .send({ ...payload, orderId: 'not-a-uuid' })
+        .expect(400);
+      await post('/payments', staff).send(payload).expect(403);
+    });
     it('protects ADMIN and STAFF APIs against CUSTOMER/STAFF access', async () => {
       await get('/admin/products', customer).expect(403);
       await get('/admin/products', staff).expect(403);
@@ -200,9 +225,26 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
         .expect(409);
       process.env.MOCK_PAYMENT_OUTCOME = 'SUCCESS';
       await get(`/payments/${attempt.body.id}`, customer).expect(200);
-      await post(`/orders/${orderId}/payments`, customer, key)
-        .send({ method: 'WALLET' })
-        .expect(201);
+      const alias = await post('/payments', customer)
+        .send({ orderId, method: 'WALLET', idempotencyKey: key })
+        .expect(200);
+      expect(alias.body.payment.id).toBe(attempt.body.id);
+      expect(alias.body.order.status).toBe('PAID');
+      expect(
+        (
+          await post('/payments', customer)
+            .send({ orderId, method: 'WALLET', idempotencyKey: key })
+            .expect(200)
+        ).body.payment.id,
+      ).toBe(attempt.body.id);
+      await post('/payments', other)
+        .send({ orderId, method: 'WALLET', idempotencyKey: randomUUID() })
+        .expect(404);
+      expect(await db.payment.count({ where: { orderId } })).toBe(1);
+      await get(`/staff/orders/${orderId}`, customer).expect(403);
+      expect(
+        (await get(`/staff/orders/${orderId}`, staff).expect(200)).body.status,
+      ).toBe('PAID');
       const size = await db.size.findUniqueOrThrow({ where: { id: sizeId } });
       expect(size.onHand).toBe(1);
       expect(size.reserved).toBe(0);
