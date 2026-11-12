@@ -37,7 +37,7 @@ export class PaymentsService {
       );
     }
 
-    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+    if (order.status !== OrderStatus.PENDING) {
       throw new BadRequestException(
         'Đơn hàng không ở trạng thái chờ thanh toán.',
       );
@@ -118,7 +118,7 @@ export class PaymentsService {
               where: {
                 id: order.id,
                 userId,
-                status: OrderStatus.PENDING_PAYMENT,
+                status: OrderStatus.PENDING,
               },
               data: {
                 status: OrderStatus.PAID,
@@ -147,7 +147,7 @@ export class PaymentsService {
               data: {
                 orderId: order.id,
                 actorId: userId,
-                fromStatus: OrderStatus.PENDING_PAYMENT,
+                fromStatus: OrderStatus.PENDING,
                 toStatus: OrderStatus.PAID,
               },
             });

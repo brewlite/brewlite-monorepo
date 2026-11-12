@@ -85,7 +85,7 @@ export class StaffGuard implements CanActivate {
     const { actor } = context.switchToHttp().getRequest<AuthenticatedRequest>();
     if (
       !actor ||
-      (actor.role !== UserRole.STAFF && actor.role !== UserRole.MANAGER)
+      (actor.role !== UserRole.STAFF && actor.role !== UserRole.ADMIN)
     ) {
       throw new ForbiddenException(
         'Chỉ nhân viên hoặc quản lý được xử lý đơn.',

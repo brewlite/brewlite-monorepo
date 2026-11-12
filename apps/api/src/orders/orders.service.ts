@@ -131,7 +131,7 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, actor: Actor, dto: UpdateOrderStatusDto) {
-    if (actor.role !== UserRole.STAFF && actor.role !== UserRole.MANAGER) {
+    if (actor.role !== UserRole.STAFF && actor.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Không có quyền cập nhật đơn.');
     }
     const next: Partial<Record<OrderStatus, OrderStatus>> = {

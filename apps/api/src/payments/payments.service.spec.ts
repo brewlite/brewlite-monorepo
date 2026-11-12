@@ -44,7 +44,7 @@ describe('PaymentsService', () => {
     const order = {
       id: 'order-1',
       userId: 'customer-1',
-      status: OrderStatus.PENDING_PAYMENT,
+      status: OrderStatus.PENDING,
       finalTotal: new Prisma.Decimal('45000'),
     };
 

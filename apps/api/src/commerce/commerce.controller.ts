@@ -1,4 +1,4 @@
-import { CreatePaymentDto } from './payment.dto';
+import { CreatePaymentDto } from '../payments/dto/create-payment.dto';
 import {
   ConfiguredCartItemDto,
   ConfiguredQuoteDto,
