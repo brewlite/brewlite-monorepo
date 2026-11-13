@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { SiteFrame } from "../../components/layout/site-frame";
 import { getStore, sendStore, type Order } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
+import { refreshAuth, useAuthStatus, useAuthUser } from "../../lib/auth-store";
 import { formatPrice } from "../../lib/format-price";
 import { normalizeSearch } from "../../lib/normalize-search";
 import { AdminOverview, type OverviewProduct, type OverviewSize } from '../../components/admin/admin-overview';
@@ -95,6 +97,8 @@ function display(v: unknown) {
       : "—";
 }
 export default function AdminPage() {
+  const authUser = useAuthUser();
+  const authStatus = useAuthStatus();
   const [kind, setKind] = useState("dashboard");
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [loadingHeight, setLoadingHeight] = useState(0);
@@ -138,6 +142,7 @@ export default function AdminPage() {
   const productRows = kind === 'products' ? filterAdminProducts(rows, lookups.categories ?? [], categoryFilter, search) : [];
   useEffect(() => {
     let active = true;
+    if (!authStatus.ready || authStatus.error || authUser?.role !== "ADMIN") return () => { active = false; };
     async function load() {
       try {
         if (kind === "dashboard" || kind === "statistics") {
@@ -181,7 +186,7 @@ export default function AdminPage() {
     return () => {
       active = false;
     };
-  }, [kind, attempt]);
+  }, [authStatus.ready, authStatus.error, authUser?.id, authUser?.role, kind, attempt]);
   function edit(row: Row | null) {
     setImageFile(null);
     setFormError('');
@@ -248,19 +253,37 @@ export default function AdminPage() {
           <AdminSidebar current={kind} onNavigate={navigate} />
           <div ref={workspaceRef} className="admin-main-panel" style={loading && loadingHeight ? { minHeight: `max(calc(100svh - 180px), ${loadingHeight}px)` } : undefined}>
           <header className="admin-page-heading"><h1>{names[kind]}</h1><button className="admin-refresh" aria-label="Làm mới" title="Làm mới" disabled={loading} onClick={() => { setLoadingHeight(workspaceRef.current?.getBoundingClientRect().height ?? 0); setLoading(true); setAttempt((value) => value + 1); }}>↻</button></header>
-          {loading && (
+          {!authStatus.ready && !authStatus.error && (
+            <p role="status">Đang kiểm tra phiên đăng nhập…</p>
+          )}
+          {authStatus.error && (
+            <p role="alert">
+              Không thể kiểm tra phiên đăng nhập.{" "}
+              <button type="button" onClick={() => void refreshAuth().catch(() => {})}>Thử lại</button>
+            </p>
+          )}
+          {authStatus.ready && !authStatus.error && !authUser && (
+            <p role="alert">
+              Vui lòng đăng nhập để truy cập khu vực quản trị.{" "}
+              <Link href="/login">Đăng nhập</Link>
+            </p>
+          )}
+          {authStatus.ready && !authStatus.error && authUser && authUser.role !== "ADMIN" && (
+            <p role="alert">Tài khoản hiện tại không có quyền truy cập khu vực quản trị.</p>
+          )}
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && loading && (
             <p role="status">Đang tải dữ liệu và kiểm tra quyền ADMIN…</p>
           )}
-          {error && (
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && error && (
             <p role="alert">
               {error}{" "}
               <button onClick={() => setAttempt((a) => a + 1)}>Thử lại</button>
             </p>
           )}
-          {!loading && !error && (kind === "dashboard" || kind === "statistics") && dashboard && (
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && (kind === "dashboard" || kind === "statistics") && dashboard && (
             <AdminOverview data={dashboard} {...overviewDetails} onNavigate={navigate} mode={kind === "statistics" ? "statistics" : "summary"} />
           )}
-          {!loading && !error && fields[kind] && (
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && fields[kind] && (
             <>
               {kind === "promotions" && <PromotionsTable rows={rows} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
               {['categories', 'toppings', 'users'].includes(kind) && <CatalogManagement key={kind} kind={kind as 'categories' | 'toppings' | 'users'} rows={rows} products={lookups.products ?? []} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
@@ -421,7 +444,7 @@ export default function AdminPage() {
             </form>
             </CenteredDialog>
           )}
-          {!loading && !error && kind === "orders" && (
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && kind === "orders" && (
             <OrderMonitor orders={orders} />
           )}
           {formConfirmation && <CenteredDialog label={formConfirmation.title} className="admin-confirm-dialog" onClose={() => setFormConfirmation(null)}><h2>{formConfirmation.title}</h2><p>{formConfirmation.description}</p><div className="store-actions"><button onClick={() => setFormConfirmation(null)}>Hủy</button><button onClick={() => void save({ preventDefault() {} }, true)}>{formConfirmation.action}</button></div></CenteredDialog>}

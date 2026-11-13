@@ -32,6 +32,18 @@ const orderInclude = {
   payments: { include: { refund: true } },
   history: { orderBy: { orderVersion: 'asc' as const } },
 };
+const adminOrderInclude = {
+  ...orderInclude,
+  user: { select: { id: true, fullName: true, email: true, phone: true } },
+  history: {
+    include: {
+      actor: {
+        select: { id: true, fullName: true, email: true, role: true },
+      },
+    },
+    orderBy: { orderVersion: 'asc' as const },
+  },
+};
 function fail(code: string, message: string, status = 400): never {
   const body = { code, message };
   if (status === 409) throw new ConflictException(body);
@@ -693,13 +705,21 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       },
       orderBy: { createdAt: queue ? 'asc' : 'desc' },
       take: 100,
-      include: orderInclude,
+      include: all ? adminOrderInclude : orderInclude,
     });
   }
   async order(id: string, userId?: string) {
     const o = await this.db.order.findFirst({
       where: { id, isLegacy: false, ...(userId ? { userId } : {}) },
       include: orderInclude,
+    });
+    if (!o) fail('NOT_FOUND', 'Không tìm thấy đơn.', 404);
+    return o;
+  }
+  async adminOrder(id: string) {
+    const o = await this.db.order.findFirst({
+      where: { id, isLegacy: false },
+      include: adminOrderInclude,
     });
     if (!o) fail('NOT_FOUND', 'Không tìm thấy đơn.', 404);
     return o;

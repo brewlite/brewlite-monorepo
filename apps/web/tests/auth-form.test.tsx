@@ -4,7 +4,14 @@ import LoginForm from "../components/auth/login-form";
 import { login, register, verifyEmail } from "../services/auth.service";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("../services/auth.service", () => ({ login: vi.fn(), register: vi.fn(), verifyEmail: vi.fn(), resendOtp: vi.fn(), authError: () => "Thông tin không hợp lệ" }));
+vi.mock("../services/auth.service", () => ({
+  login: vi.fn(),
+  register: vi.fn(),
+  verifyEmail: vi.fn(),
+  resendOtp: vi.fn(),
+  authError: () => "Thông tin không hợp lệ",
+  onSessionExpired: vi.fn(),
+}));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const user = { id: "user", fullName: "Customer", email: "customer@example.com", role: "CUSTOMER" as const, emailVerifiedAt: "2026-11-07", loyaltyPoints: 0 };
 

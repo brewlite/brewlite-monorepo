@@ -25,7 +25,8 @@ export type Order = {
     toppings: { toppingName: string; price: string }[];
   }[];
   payments: { id: string; status: string; method: string; amount: string; createdAt?: string; paidAt?: string | null; resolvedAt?: string | null; attemptNumber?: number | null; providerPaymentId?: string | null; refund?: { id: string; provider: string; status: "REQUESTED" | "PENDING" | "SUCCESS" | "FAILED" | "UNKNOWN"; amount: string; resolvedAt: string | null } | null }[];
-  history: { fromStatus?: string | null; toStatus: string; actorId?: string | null; orderVersion?: number; createdAt: string }[];
+  history: { fromStatus?: string | null; toStatus: string; actorId?: string | null; orderVersion?: number; createdAt: string; actor?: { id: string; fullName: string | null; email: string; role: string } | null }[];
+  user?: { id: string; fullName: string | null; email: string; phone?: string | null };
 };
 export async function getStore<T>(path: string) {
   return (await authHttp.get<T>(apiUrl(path))).data;

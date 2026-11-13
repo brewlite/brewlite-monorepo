@@ -10,9 +10,11 @@ function scalar(value: unknown): string {
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { OrderStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CommerceService,
@@ -83,6 +85,82 @@ export class StoreAdminService {
       default:
         throw new NotFoundException();
     }
+  }
+  async orderStats(userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy tài khoản.');
+    if (user.role !== UserRole.CUSTOMER)
+      throw new ForbiddenException(
+        'Chỉ tài khoản CUSTOMER có thống kê đơn hàng.',
+      );
+
+    const grouped = await this.db.order.groupBy({
+      by: ['status'],
+      where: { userId, isLegacy: false },
+      _count: { _all: true },
+    });
+    let totalOrders = 0;
+    let completedOrders = 0;
+    let cancelledOrders = 0;
+    for (const group of grouped) {
+      const count = group._count._all;
+      totalOrders += count;
+      if (group.status === OrderStatus.COMPLETED) completedOrders = count;
+      if (group.status === OrderStatus.CANCELLED) cancelledOrders = count;
+    }
+    return { totalOrders, completedOrders, cancelledOrders };
+  }
+  async recentOrders(
+    userId: string,
+    page: number,
+    pageSize: number,
+    status?: OrderStatus,
+  ) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy tài khoản.');
+    if (user.role !== UserRole.CUSTOMER)
+      throw new ForbiddenException(
+        'Chỉ tài khoản CUSTOMER có danh sách đơn hàng.',
+      );
+    if (page < 1 || pageSize < 1)
+      throw new BadRequestException('Phân trang không hợp lệ.');
+    if (status && !Object.values(OrderStatus).includes(status))
+      throw new BadRequestException('Trạng thái đơn không hợp lệ.');
+    const safePageSize = Math.min(pageSize, 50);
+    const where = {
+      userId,
+      isLegacy: false,
+      ...(status ? { status } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.db.order.count({ where }),
+      this.db.order.findMany({
+        where,
+        select: {
+          id: true,
+          orderCode: true,
+          status: true,
+          finalTotal: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * safePageSize,
+        take: safePageSize,
+      }),
+    ]);
+    return {
+      items,
+      page,
+      pageSize: safePageSize,
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+    };
   }
   async save(kind: string, body: unknown, id?: string, actorId?: string) {
     const b = record(body);
