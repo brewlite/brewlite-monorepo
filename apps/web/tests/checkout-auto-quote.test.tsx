@@ -5,7 +5,11 @@ import { calculateQuote } from '../services/quote.service';
 const { lines } = vi.hoisted(() => ({ lines: [{ key: 'l', productId: 'p', sizeId: 's', name: 'Latte', sizeName: 'M', toppings: [], note: '', quantity: 1, unitPrice: 35000, imageUrl: null }] }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('../components/cart/cart-provider', () => ({ useCart: () => ({ lines, subtotal: 35000, version: 1, ready: true, canCheckout: true, reload: vi.fn() }) }));
-vi.mock('../services/auth.service', () => ({ currentUser: async () => ({ id: 'u', fullName: 'Customer', email: 'test@example.test', loyaltyPoints: 100 }), authError: () => 'Error' }));
+vi.mock('../services/auth.service', () => ({
+  currentUser: async () => ({ id: 'u', fullName: 'Customer', email: 'test@example.test', loyaltyPoints: 100 }),
+  authError: () => 'Error',
+  onSessionExpired: vi.fn(),
+}));
 vi.mock('../services/quote.service', () => ({ calculateQuote: vi.fn() }));
 vi.mock('../services/checkout.service', () => ({ pendingCheckout: () => null, createCheckoutOrder: vi.fn() }));
 Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', ''); } });

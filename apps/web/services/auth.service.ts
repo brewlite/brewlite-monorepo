@@ -4,15 +4,30 @@ import { apiUrl } from "./product.service";
 export type AuthUser = { id: string; fullName: string; email: string; role: "CUSTOMER" | "STAFF" | "ADMIN"; emailVerifiedAt: string; loyaltyPoints: number };
 export const authHttp = axios.create({ withCredentials: true, timeout: 15000 });
 let refreshing: Promise<unknown> | null = null;
+const sessionExpiredListeners = new Set<() => void>();
+export function onSessionExpired(listener: () => void) {
+  sessionExpiredListeners.add(listener);
+  return () => sessionExpiredListeners.delete(listener);
+}
+function notifySessionExpired() {
+  sessionExpiredListeners.forEach((listener) => listener());
+}
 authHttp.interceptors.response.use((response) => response, async (error) => {
   const config = error.config;
   if (error.response?.status !== 401 || !config || config._retried || /\/auth\/(login|register|verify-email|resend-otp|refresh|logout)/.test(config.url ?? "")) return Promise.reject(error);
   config._retried = true;
   if (!refreshing) {
     const refresh = () => authHttp.post(apiUrl("/auth/refresh"));
-    refreshing = (typeof navigator !== "undefined" && navigator.locks ? navigator.locks.request("brewlite-auth-refresh", refresh) : refresh()).finally(() => { refreshing = null; });
+    refreshing = (typeof navigator !== "undefined" && navigator.locks ? navigator.locks.request("brewlite-auth-refresh", refresh) : refresh())
+      .catch((refreshError) => {
+        notifySessionExpired();
+        throw refreshError;
+      })
+      .finally(() => { refreshing = null; });
   }
-  try { await refreshing; return await authHttp(config); } catch { return Promise.reject(error); }
+  try { await refreshing; return await authHttp(config); } catch {
+    return Promise.reject(error);
+  }
 });
 export function authError(error: unknown) {
   if (axios.isAxiosError(error)) {

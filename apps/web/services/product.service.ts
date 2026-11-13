@@ -49,8 +49,12 @@ export function apiUrl(resourcePath: string): string {
   // Accept the server origin or an API base ending in /api, including a trailing slash.
   const path = apiUrl.pathname.replace(/\/+$/, "");
   const prefix = path.endsWith("/api") ? path : `${path}/api`;
-  const resource = resourcePath.startsWith("/") ? resourcePath : `/${resourcePath}`;
+  const queryStart = resourcePath.indexOf("?");
+  const resourcePathname = queryStart === -1 ? resourcePath : resourcePath.slice(0, queryStart);
+  const resourceQuery = queryStart === -1 ? "" : resourcePath.slice(queryStart);
+  const resource = resourcePathname.startsWith("/") ? resourcePathname : `/${resourcePathname}`;
   apiUrl.pathname = `${prefix}${resource}`;
+  apiUrl.search = resourceQuery;
   return apiUrl.toString();
 }
 

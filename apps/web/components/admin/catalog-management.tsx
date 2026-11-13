@@ -1,14 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatPrice } from "../../lib/format-price";
 import { normalizeSearch } from "../../lib/normalize-search";
 import { useAuthUser } from "../../lib/auth-store";
+import { getStore } from "../../services/store.service";
+import { CenteredDialog } from "../ui/centered-dialog";
+import { statusName } from "../orders/orders-view";
 import { useAdminToggle } from "./use-admin-toggle";
 import { Pencil } from "./inventory-table";
+import { AdminOrderDetailContent } from "./order-detail-dialog";
 
 type Row = Record<string, unknown> & { id: string };
 type Kind = "categories" | "toppings" | "users";
+type OrderStats = {
+  totalOrders: number;
+  completedOrders: number;
+  cancelledOrders: number;
+};
+type RecentOrder = {
+  id: string;
+  orderCode: string;
+  status: string;
+  finalTotal: string;
+  createdAt: string;
+};
+type RecentOrderResponse = {
+  items: RecentOrder[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+type OrderFilter = "" | "COMPLETED" | "CANCELLED";
+type DetailView = "account" | "orders" | "order";
 const titles = { categories: "Danh mục", toppings: "Topping", users: "Tài khoản" };
 const roles: Record<string, string> = { CUSTOMER: "Khách hàng", STAFF: "Nhân viên", ADMIN: "Quản trị viên" };
 
@@ -34,11 +59,42 @@ function ToppingIcon({ name }: { name: string }) {
   </svg>;
 }
 
+function validStats(value: unknown): value is OrderStats {
+  if (!value || typeof value !== "object") return false;
+  const stats = value as Record<string, unknown>;
+  return ["totalOrders", "completedOrders", "cancelledOrders"].every((key) =>
+    Number.isInteger(stats[key]) && (stats[key] as number) >= 0
+  );
+}
+
+function verificationLabel(value: unknown) {
+  if (value === null) return "Chưa xác minh";
+  if (typeof value === "string" && value && !Number.isNaN(Date.parse(value)))
+    return "Đã xác minh";
+  return "Chưa có dữ liệu";
+}
+
 export function CatalogManagement({ kind, rows, products, onEdit, onRefresh }: {
   kind: Kind; rows: Row[]; products: Row[]; onEdit: (row: Row | null) => void; onRefresh: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("");
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [stats, setStats] = useState<OrderStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState(false);
+  const [statsAttempt, setStatsAttempt] = useState(0);
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[] | null>(null);
+  const [ordersTotal, setOrdersTotal] = useState(0);
+  const [ordersPage, setOrdersPage] = useState(0);
+  const [ordersTotalPages, setOrdersTotalPages] = useState(0);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState(false);
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("");
+  const [detailView, setDetailView] = useState<DetailView>("account");
+  const [ordersAttempt, setOrdersAttempt] = useState(0);
+  const [orderDetailId, setOrderDetailId] = useState<string | null>(null);
+  const ordersRequest = useRef(0);
   const actor = useAuthUser();
   const action = useAdminToggle(onRefresh);
   const pending = action.pending;
@@ -48,6 +104,101 @@ export function CatalogManagement({ kind, rows, products, onEdit, onRefresh }: {
   products.forEach((product) => { const id = String(product.categoryId ?? ""); counts.set(id, (counts.get(id) ?? 0) + 1); });
   const largest = Math.max(1, ...counts.values());
   const activeCount = rows.filter((row) => action.value(row.id, row[flag] === true)).length;
+  const detailUser = detailId
+    ? rows.find((row) => row.id === detailId) ?? null
+    : null;
+  const detailRole = detailUser?.role;
+
+  useEffect(() => {
+    let active = true;
+    if (!detailId || detailRole !== "CUSTOMER") return () => { active = false; };
+    getStore<OrderStats>(
+      `/admin/users/${encodeURIComponent(detailId)}/order-stats`,
+    )
+      .then((value) => {
+        if (!active) return;
+        if (validStats(value)) setStats(value);
+        else setStatsError(true);
+      })
+      .catch(() => {
+        if (active) setStatsError(true);
+      })
+      .finally(() => {
+        if (active) setStatsLoading(false);
+      });
+    return () => { active = false; };
+  }, [detailId, detailRole, statsAttempt]);
+
+  async function loadOrders(filter: OrderFilter, page: number, append = false, pageSize = 10, userId = detailId) {
+    if (!userId || (userId === detailId && detailRole !== "CUSTOMER")) return;
+    const request = ++ordersRequest.current;
+    setOrdersLoading(true);
+    setOrdersError(false);
+    if (!append) setRecentOrders(null);
+    const suffix = filter ? `&status=${filter}` : "";
+    try {
+      const value = await getStore<RecentOrderResponse>(
+        `/admin/users/${encodeURIComponent(userId)}/orders?page=${page}&pageSize=${pageSize}${suffix}`,
+      );
+      if (request !== ordersRequest.current) return;
+      if (!value || !Array.isArray(value.items) || !Number.isInteger(value.total)) {
+        setOrdersError(true);
+        return;
+      }
+
+      setRecentOrders((current) => append ? [...(current ?? []), ...value.items] : value.items);
+      setOrdersTotal(value.total);
+      setOrdersPage(value.page);
+      setOrdersTotalPages(value.totalPages);
+    } catch {
+      if (request === ordersRequest.current) setOrdersError(true);
+    } finally {
+      if (request === ordersRequest.current) setOrdersLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!detailId || detailRole !== "CUSTOMER") return;
+    const timer = window.setTimeout(() => void loadOrders("", 1, false, 5), 0);
+    return () => window.clearTimeout(timer);
+    // This local command intentionally uses the selected account from the current render.
+  }, [detailId, detailRole, ordersAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function openDetails(row: Row) {
+    ordersRequest.current += 1;
+    setDetailId(row.id);
+    setStats(null);
+    setStatsError(false);
+    setStatsLoading(row.role === "CUSTOMER");
+    setStatsAttempt((value) => value + 1);
+    setRecentOrders(null);
+    setOrdersTotal(0);
+    setOrdersPage(0);
+    setOrdersTotalPages(0);
+    setOrdersError(false);
+    setOrdersLoading(false);
+    setOrderFilter("");
+    setDetailView("account");
+    setOrderDetailId(null);
+    if (row.role === "CUSTOMER") setOrdersAttempt((value) => value + 1);
+  }
+
+  function closeDetails() {
+    ordersRequest.current += 1;
+    setDetailId(null);
+    setStats(null);
+    setStatsError(false);
+    setStatsLoading(false);
+    setRecentOrders(null);
+    setOrdersError(false);
+    setOrdersLoading(false);
+    setDetailView("account");
+    setOrderDetailId(null);
+  }
+
+  const showStatsLoading = detailRole === "CUSTOMER" &&
+    (statsLoading || (!stats && !statsError));
+
   function toggle(row: Row) {
     if (pending || (kind === "users" && (row.role === "ADMIN" || row.id === actor?.id))) return;
     const previous = action.value(row.id, row[flag] === true);
@@ -75,10 +226,10 @@ export function CatalogManagement({ kind, rows, products, onEdit, onRefresh }: {
     {kind === "users" && <div className="account-role-filters" aria-label="Lọc vai trò">
       {[["", "Tất cả"], ...Object.entries(roles)].map(([value, label]) => <button key={value} aria-pressed={role === value} onClick={() => setRole(value)}>{label}</button>)}
     </div>}
-    <div className="admin-table management-table"><table><thead><tr>
+    <div className="admin-table management-table"><table className={kind === "users" ? "user-management-table" : undefined}><thead><tr>
       <th>{kind === "users" ? "Tài khoản" : titles[kind]}</th>
       <th>{kind === "users" ? "Vai trò" : kind === "toppings" ? "Giá thêm" : "Số món"}</th>
-      <th>{kind === "users" ? "Hoạt động" : kind === "toppings" ? "Đang bán" : "Đang dùng"}</th><th>Chỉnh sửa</th>
+      <th>{kind === "users" ? "Hoạt động" : kind === "toppings" ? "Đang bán" : "Đang dùng"}</th><th>{kind === "users" ? "Thao tác" : "Chỉnh sửa"}</th>
     </tr></thead><tbody>{filtered.map((row) => {
       const name = String(kind === "users" ? row.email : row.name);
       const protectedUser = kind === "users" && (row.role === "ADMIN" || row.id === actor?.id);
@@ -87,9 +238,69 @@ export function CatalogManagement({ kind, rows, products, onEdit, onRefresh }: {
         <td><div className="management-identity"><span className={`management-avatar${kind === "users" ? " account-avatar" : ""}`} aria-hidden="true">{kind === "users" ? name.slice(0, 1).toLocaleUpperCase("vi-VN") : kind === "toppings" ? <ToppingIcon name={name} /> : <CategoryIcon name={name} />}</span><span>{kind === "users" ? name : <strong>{name}</strong>}</span></div></td>
         <td>{kind === "users" ? <span className={`account-role ${row.role === "ADMIN" ? "owner" : row.role === "STAFF" ? "staff" : "customer"}`}>{roles[String(row.role)] ?? "Chưa xác định"}</span> : kind === "toppings" ? <strong>+{formatPrice(String(row.price))}đ</strong> : <div className="category-count"><span className="category-count-track" aria-hidden="true"><span style={{ width: `${count / largest * 100}%` }} /></span><strong>{count} món</strong></div>}</td>
         <td><button type="button" className="promotion-switch" role="switch" aria-label={`${kind === "users" ? "Hoạt động" : "Áp dụng"} ${name}`} aria-checked={action.value(row.id, row[flag] === true)} disabled={pending !== null || protectedUser} title={protectedUser ? "Không thể khóa tài khoản ADMIN hoặc chính mình" : undefined} onClick={() => toggle(row)}><span /></button>{protectedUser && <span className="admin-lock-icon" aria-label="Tài khoản được bảo vệ"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span>}</td>
-        <td><button className="inventory-icon-button" aria-label={`Sửa ${name}`} disabled={protectedUser} title={protectedUser ? "Tài khoản ADMIN được bảo vệ" : undefined} onClick={() => onEdit(row)}><Pencil /></button></td>
+        <td>{kind === "users" ? <span className="admin-user-actions"><button type="button" className="inventory-icon-button admin-user-details-trigger" aria-label={`Xem chi tiết ${name}`} aria-expanded={detailId === row.id} title="Xem chi tiết" onClick={() => openDetails(row)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={detailId === row.id ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6"} /></svg></button><button type="button" className="inventory-icon-button" aria-label={`Sửa ${name}`} disabled={protectedUser} title={protectedUser ? "Tài khoản ADMIN được bảo vệ" : undefined} onClick={() => onEdit(row)}><Pencil /></button></span> : <button type="button" className="inventory-icon-button" aria-label={`Sửa ${name}`} disabled={protectedUser} title={protectedUser ? "Tài khoản ADMIN được bảo vệ" : undefined} onClick={() => onEdit(row)}><Pencil /></button>}</td>
       </tr>;
     })}</tbody></table></div>
     {filtered.length === 0 && <p role="status">{rows.length ? "Không tìm thấy kết quả phù hợp." : "Chưa có dữ liệu."}</p>}
+    {detailUser && <CenteredDialog className="admin-user-details-dialog" label={detailView === "account" ? "Chi tiết tài khoản" : detailView === "orders" ? "Danh sách đơn hàng" : "Tóm tắt đơn hàng"} onClose={closeDetails}>
+      <div className="admin-user-details">
+        <button type="button" className="admin-user-details-close" aria-label="Đóng chi tiết tài khoản" onClick={closeDetails}>×</button>
+        {detailView !== "account" && <button type="button" className="admin-user-details-back" onClick={() => { setDetailView(detailView === "order" ? "orders" : "account"); setOrderDetailId(null); }}>← Quay lại</button>}
+        {detailView === "order" && orderDetailId ? <><h2>Tóm tắt đơn hàng</h2><AdminOrderDetailContent key={orderDetailId} orderId={orderDetailId} /></> : detailView === "orders" ? <section className="admin-user-order-list">
+          <h2>Đơn hàng của {typeof detailUser.fullName === "string" && detailUser.fullName ? detailUser.fullName : typeof detailUser.email === "string" ? detailUser.email : "tài khoản"}</h2>
+          <div className="admin-order-filters" aria-label="Lọc đơn hàng">
+            {[["", "Tất cả"], ["COMPLETED", "Hoàn tất"], ["CANCELLED", "Đã hủy"]].map(([value, label]) => <button key={value} type="button" aria-pressed={orderFilter === value} onClick={() => { const next = value as OrderFilter; setOrderFilter(next); void loadOrders(next, 1, false); }}>{label}</button>)}
+          </div>
+          {ordersLoading && <p role="status">Đang tải đơn hàng…</p>}
+          {ordersError && <p role="alert">Không thể tải danh sách đơn hàng. <button type="button" onClick={() => void loadOrders(orderFilter, ordersPage || 1, false)}>Thử lại</button></p>}
+          {!ordersLoading && !ordersError && recentOrders && <div className="admin-recent-orders">
+            {recentOrders.length === 0 && <p>Chưa có đơn hàng.</p>}
+            {recentOrders.map((order) => <div className="admin-recent-order" key={order.id}>
+              <div><strong>{order.orderCode}</strong><span>{new Date(order.createdAt).toLocaleString("vi-VN")}</span></div>
+              <div><span>{statusName[order.status] ?? order.status}</span><strong>{formatPrice(order.finalTotal)}đ</strong></div>
+              <button type="button" className="inventory-icon-button" onClick={() => { setOrderDetailId(order.id); setDetailView("order"); }}>Chi tiết</button>
+            </div>)}
+          </div>}
+          {!ordersLoading && !ordersError && ordersTotal > 0 && <p className="admin-order-count">Đã hiển thị {recentOrders?.length ?? 0} / {ordersTotal}</p>}
+          {!ordersLoading && !ordersError && ordersPage < ordersTotalPages && <button type="button" className="admin-load-more" onClick={() => void loadOrders(orderFilter, ordersPage + 1, true)}>Tải thêm 10 đơn</button>}
+        </section> : <>
+          <h2>Chi tiết tài khoản</h2>
+          <section>
+            <h3>Thông tin tài khoản</h3>
+            <dl>
+              <div><dt>Họ tên</dt><dd>{typeof detailUser.fullName === "string" && detailUser.fullName ? detailUser.fullName : "Chưa có dữ liệu"}</dd></div>
+              <div><dt>Email</dt><dd className="admin-user-email">{typeof detailUser.email === "string" ? detailUser.email : "Chưa có dữ liệu"}</dd></div>
+              <div><dt>Vai trò</dt><dd>{roles[String(detailUser.role)] ?? "Chưa có dữ liệu"}</dd></div>
+              <div><dt>Trạng thái</dt><dd>{detailUser.isActive === true ? "Đang hoạt động" : "Đã khóa"}</dd></div>
+              <div><dt>Xác minh email</dt><dd>{verificationLabel(detailUser.emailVerifiedAt)}</dd></div>
+            </dl>
+          </section>
+          {detailRole === "CUSTOMER" && <section>
+            <h3>Điểm thưởng</h3>
+            <p className="admin-user-points">{typeof detailUser.loyaltyPoints === "number" && Number.isInteger(detailUser.loyaltyPoints) && detailUser.loyaltyPoints >= 0 ? `${detailUser.loyaltyPoints} điểm` : "Chưa có dữ liệu"}</p>
+            <h3>Thống kê đơn hàng</h3>
+            {showStatsLoading && <p role="status">Đang tải thống kê đơn hàng…</p>}
+            {statsError && <div role="alert">Không thể tải thống kê đơn hàng <button type="button" onClick={() => { setStatsError(false); setStats(null); setStatsLoading(true); setStatsAttempt((value) => value + 1); }}>Thử lại</button></div>}
+            {stats && <div className="admin-user-stat-grid">
+              <button type="button" onClick={() => { setOrderFilter(""); setDetailView("orders"); void loadOrders("", 1, false); }}><strong>{stats.totalOrders}</strong><span>Tổng đơn hàng</span></button>
+              <button type="button" onClick={() => { setOrderFilter("COMPLETED"); setDetailView("orders"); void loadOrders("COMPLETED", 1, false); }}><strong>{stats.completedOrders}</strong><span>Đơn hoàn tất</span></button>
+              <button type="button" onClick={() => { setOrderFilter("CANCELLED"); setDetailView("orders"); void loadOrders("CANCELLED", 1, false); }}><strong>{stats.cancelledOrders}</strong><span>Đơn đã hủy</span></button>
+            </div>}
+            <h3>Đơn hàng gần đây</h3>
+            {ordersLoading && !recentOrders && <p role="status">Đang tải đơn hàng gần đây…</p>}
+            {ordersError && <div role="alert">Không thể tải đơn hàng gần đây <button type="button" onClick={() => setOrdersAttempt((value) => value + 1)}>Thử lại</button></div>}
+            {recentOrders && <div className="admin-recent-orders">
+              {recentOrders.length === 0 && <p>Chưa có đơn hàng.</p>}
+              {recentOrders.slice(0, 5).map((order) => <div className="admin-recent-order" key={order.id}>
+                <div><strong>{order.orderCode}</strong><span>{new Date(order.createdAt).toLocaleString("vi-VN")}</span></div>
+                <div><span>{statusName[order.status] ?? order.status}</span><strong>{formatPrice(order.finalTotal)}đ</strong></div>
+                <button type="button" className="inventory-icon-button" onClick={() => { setOrderDetailId(order.id); setDetailView("order"); }}>Chi tiết</button>
+              </div>)}
+            </div>}
+            <button type="button" className="admin-load-more" onClick={() => { setOrderFilter(""); setDetailView("orders"); void loadOrders("", 1, false); }}>Xem tất cả đơn</button>
+          </section>}
+        </>}
+      </div>
+    </CenteredDialog>}
   </section>;
 }

@@ -23,10 +23,10 @@ it("filters actual order statuses and expands snapshots without a mutation actio
   expect(screen.getByRole("dialog", { name: "Chi tiết đơn BL001" })).toBeDefined();
   expect(screen.getByText("Ghi chú: Ít đá")).toBeDefined();
   expect(screen.getByText("Chi tiết đơn hàng")).toBeDefined();
-  expect(screen.getByText("Size L · 1 ly")).toBeDefined();
+  expect(screen.getAllByText("Size L · 1 ly")).toHaveLength(2);
   expect(screen.queryByText("Size Size L")).toBeNull();
   expect(screen.getByText("Topping: Trân châu (5.000đ)")).toBeDefined();
-  expect(screen.getByText("Size L · 1 ly · Đơn giá: 40.000đ")).toBeDefined();
+  expect(screen.queryByText(/Đơn giá/)).toBeNull();
   expect(screen.getByText("Thành tiền: 45.000đ")).toBeDefined();
   expect(screen.getAllByText("08/11/2026 lúc 07:00:00")).toHaveLength(2);
   expect(screen.getByText("WELCOME")).toBeDefined();
@@ -59,9 +59,9 @@ it("keeps expanded Admin details readable with multiple items and missing option
   expect(screen.getByText("Chưa có size · 2 ly")).toBeDefined();
   expect(screen.queryByText("Topping: Không topping")).toBeNull();
   expect(screen.getByText("Ghi chú: Ít ngọt")).toBeDefined();
-  expect(screen.getByText("Chưa có size · 2 ly · Đơn giá: 25.000đ")).toBeDefined();
-  expect(screen.getByText("Size M · 1 ly · Đơn giá: —")).toBeDefined();
-  expect(screen.getByText("Tạm tính")).toBeDefined();
+  expect(screen.getByText("Chưa có size · 2 ly · 25.000đ × 2")).toBeDefined();
+  expect(screen.getAllByText("Size M · 1 ly")).toHaveLength(2);
+  expect(screen.queryByText("Tạm tính")).toBeNull();
   expect(screen.getByText("Ví điện tử · Thành công")).toBeDefined();
   expect(screen.getByText("Thẻ · Thất bại")).toBeDefined();
   expect(screen.getByText("BANK_TRANSFER · PROCESSING")).toBeDefined();

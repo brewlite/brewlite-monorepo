@@ -4,10 +4,15 @@ import {
   Post,
   Patch,
   Body,
+  DefaultValuePipe,
   Param,
+  ParseUUIDPipe,
+  ParseIntPipe,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { OrderStatus } from '@prisma/client';
 import type { AuthRequest } from '../auth/auth.guards';
 import {
   JwtAuthGuard,
@@ -33,7 +38,20 @@ export class StoreAdminController {
     return this.commerce.orders('', true);
   }
   @Get('orders/:id') order(@Param('id') id: string) {
-    return this.commerce.order(id);
+    return this.commerce.adminOrder(id);
+  }
+  @Get('users/:id/order-stats') orderStats(
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.orderStats(id);
+  }
+  @Get('users/:id/orders') recentOrders(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(10), ParseIntPipe) pageSize: number,
+    @Query('status') status?: OrderStatus,
+  ) {
+    return this.service.recentOrders(id, page, pageSize, status);
   }
   @Patch('sizes/:id/inventory') inventory(
     @Param('id') id: string,
