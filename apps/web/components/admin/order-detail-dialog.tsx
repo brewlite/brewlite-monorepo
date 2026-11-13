@@ -35,6 +35,13 @@ export function AdminOrderDetailContent({ orderId }: { orderId: string }) {
     .map((event) => event.actor)
     .filter((actor): actor is NonNullable<typeof actor> => Boolean(actor && ["STAFF", "ADMIN"].includes(actor.role)))
     .filter((actor, index, actors) => actors.findIndex((item) => item.id === actor.id) === index);
+  const showSubtotal = order?.subtotal != null && (
+    Number(order.subtotal) !== Number(order.finalTotal) ||
+    Boolean(order.couponCodeSnapshot) ||
+    Number(order.discountAmount ?? 0) > 0 ||
+    Number(order.pointsDiscount ?? 0) > 0 ||
+    Number(order.pointsUsed ?? 0) > 0
+  );
   return <div className="admin-order-detail-content">
       {error && <p role="alert">Không thể tải chi tiết đơn hàng. <button type="button" onClick={() => { setError(false); setLoading(true); setAttempt((value) => value + 1); }}>Thử lại</button></p>}
       {loading && <p role="status">Đang tải chi tiết đơn hàng…</p>}
@@ -46,12 +53,20 @@ export function AdminOrderDetailContent({ orderId }: { orderId: string }) {
         <div className="admin-order-detail-items">
           {order.items.map((item) => <div key={item.id}>
             <strong>{item.productName}</strong>
-            <span>{item.sizeName} · {item.quantity} ly · {formatPrice(item.lineTotal)}đ</span>
-            {item.toppings.length > 0 && <span>Topping: {item.toppings.map((topping) => topping.toppingName).join(", ")}</span>}
+            <span>{item.sizeName || "Chưa có size"} · {item.quantity} ly{item.quantity > 1 && item.unitPrice != null ? ` · ${formatPrice(item.unitPrice)}đ × ${item.quantity}` : ""}</span>
+            {item.toppings.length > 0 && <span>Topping: {item.toppings.map((topping) => `${topping.toppingName} (${formatPrice(topping.price)}đ)`).join(", ")}</span>}
             {item.note && <span>Ghi chú: {item.note}</span>}
+            <strong>Thành tiền: {formatPrice(item.lineTotal)}đ</strong>
           </div>)}
         </div>
-        <p className="admin-order-detail-total"><strong>Tổng thanh toán: {formatPrice(order.finalTotal)}đ</strong></p>
+        <div className="admin-order-detail-total">
+          {showSubtotal && <p>Tạm tính: {formatPrice(order.subtotal!)}đ</p>}
+          {!!order.couponCodeSnapshot && <p>Mã giảm giá: {order.couponCodeSnapshot}</p>}
+          {Number(order.discountAmount ?? 0) > 0 && <p>Giảm giá: {formatPrice(order.discountAmount!)}đ</p>}
+          {Number(order.pointsDiscount ?? 0) > 0 && <p>Giảm bằng điểm: {formatPrice(order.pointsDiscount!)}đ</p>}
+          {Number(order.pointsUsed ?? 0) > 0 && <p>Điểm sử dụng: {order.pointsUsed} điểm</p>}
+          <p><strong>Tổng thanh toán: {formatPrice(order.finalTotal)}đ</strong></p>
+        </div>
       </div>}
     </div>;
 }
