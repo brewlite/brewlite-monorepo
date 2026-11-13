@@ -23,7 +23,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
   let customer: string;
   let other: string;
   let staff: string;
-  let manager: string;
+  let admin: string;
   let orderId: string;
   let fixtureUsers: string[] = [];
   const originalSecret = process.env.JWT_SECRET;
@@ -85,7 +85,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
       UserRole.CUSTOMER,
       UserRole.CUSTOMER,
       UserRole.STAFF,
-      UserRole.MANAGER,
+      UserRole.ADMIN,
     ]) {
       const id = randomUUID();
       await db.user.create({
@@ -99,7 +99,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
       });
       fixtureUsers.push(id);
     }
-    [customer, other, staff, manager] = fixtureUsers;
+    [customer, other, staff, admin] = fixtureUsers;
     orderId = randomUUID();
     await db.order.create({
       data: {
@@ -180,7 +180,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
     const key = randomUUID();
     const fail = await pay(key).expect(200);
     expect(fail.body.payment.status).toBe('FAILED');
-    expect(fail.body.order.status).toBe('PENDING_PAYMENT');
+    expect(fail.body.order.status).toBe('PENDING');
     expect(await db.orderStatusEvent.count({ where: { orderId } })).toBe(0);
     expect(await db.notification.count({ where: { userId: customer } })).toBe(
       0,
@@ -369,17 +369,17 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
     expect(paid.body.total).toBe(1);
   });
 
-  it('uses database role, hides unpaid orders, and allows staff/manager after payment', async () => {
+  it('uses database role, hides unpaid orders, and allows staff/admin after payment', async () => {
     await request(app.getHttpServer())
       .get('/api/staff/orders')
-      .auth(token(customer, UserRole.MANAGER), { type: 'bearer' })
+      .auth(token(customer, UserRole.ADMIN), { type: 'bearer' })
       .expect(403);
     await request(app.getHttpServer())
       .get(`/api/staff/orders/${orderId}`)
       .auth(token(staff), { type: 'bearer' })
       .expect(404);
     await pay().expect(200);
-    for (const id of [staff, manager]) {
+    for (const id of [staff, admin]) {
       const list = await request(app.getHttpServer())
         .get('/api/staff/orders?status=PAID')
         .auth(token(id), { type: 'bearer' })
@@ -393,7 +393,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
         .expect(200);
     }
     const pending = await request(app.getHttpServer())
-      .get('/api/staff/orders?status=PENDING_PAYMENT')
+      .get('/api/staff/orders?status=PENDING')
       .auth(token(staff), { type: 'bearer' })
       .expect(200);
     expect(pending.body.total).toBe(0);
@@ -413,7 +413,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
     await update(OrderStatus.PAID, OrderStatus.PREPARING, customer).expect(403);
     await update(OrderStatus.PAID, OrderStatus.PREPARING).expect(200);
     await update(OrderStatus.PAID, OrderStatus.PREPARING).expect(200);
-    await update(OrderStatus.PREPARING, OrderStatus.READY, manager).expect(200);
+    await update(OrderStatus.PREPARING, OrderStatus.READY, admin).expect(200);
     await update(OrderStatus.PAID, OrderStatus.PREPARING).expect(409);
     await update(OrderStatus.READY, OrderStatus.COMPLETED).expect(200);
     await update(OrderStatus.READY, OrderStatus.COMPLETED).expect(200);
@@ -438,7 +438,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
     await pay().expect(200);
     const results = await Promise.all([
       update(OrderStatus.PAID, OrderStatus.PREPARING),
-      update(OrderStatus.PAID, OrderStatus.PREPARING, manager),
+      update(OrderStatus.PAID, OrderStatus.PREPARING, admin),
     ]);
     expect(results.some((result) => result.status === 200)).toBe(true);
     expect(results.every((result) => [200, 409].includes(result.status))).toBe(
@@ -506,7 +506,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
     await pay().expect(400);
     await db.order.update({
       where: { id: orderId },
-      data: { status: 'PENDING_PAYMENT', finalTotal: -1 },
+      data: { status: 'PENDING', finalTotal: -1 },
     });
     await pay().expect(400);
     await request(app.getHttpServer())
@@ -586,7 +586,7 @@ describe('Legacy payment/orders modules (isolated contract, not production AppMo
     }
     expect(
       (await db.order.findUniqueOrThrow({ where: { id: orderId } })).status,
-    ).toBe('PENDING_PAYMENT');
+    ).toBe('PENDING');
     expect(await db.payment.count({ where: { orderId } })).toBe(0);
     expect(await db.orderStatusEvent.count({ where: { orderId } })).toBe(0);
   });
