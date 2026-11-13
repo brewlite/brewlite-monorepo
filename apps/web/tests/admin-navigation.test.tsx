@@ -4,6 +4,8 @@ import { AdminSidebar } from "../components/admin/admin-sidebar";
 import { OrderMonitor } from "../components/admin/order-monitor";
 import type { Order } from "../services/store.service";
 afterEach(cleanup);
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
 it("keeps all administration destinations available and marks the active section", () => {
   const navigate = vi.fn();
   render(<AdminSidebar current="dashboard" onNavigate={navigate} />);
@@ -14,12 +16,65 @@ it("keeps all administration destinations available and marks the active section
   expect(screen.getByRole("link", { name: "← Về cửa hàng" }).getAttribute("href")).toBe("/");
 });
 it("filters actual order statuses and expands snapshots without a mutation action", () => {
-  const order: Order = { id: "one", orderCode: "BL001", status: "CANCELLED", version: 1, finalTotal: "45000", createdAt: "2026-11-08T00:00:00Z", expiresAt: null, items: [{ id: "item", productName: "Cà phê", sizeName: "L", quantity: 1, note: "Ít đá", lineTotal: "45000", toppings: [] }], payments: [], history: [{ toStatus: "PENDING", createdAt: "2026-11-08T00:00:00Z" }, { toStatus: "CANCELLED", createdAt: "2026-11-08T00:01:00Z" }] };
+  const order: Order = { id: "one", orderCode: "BL001", status: "CANCELLED", version: 1, finalTotal: "45000", subtotal: "50000", discountAmount: "5000", pointsDiscount: "0", pointsUsed: 10, couponCodeSnapshot: "WELCOME", createdAt: "2026-11-08T00:00:00Z", expiresAt: null, items: [{ id: "item", productName: "Cà phê", sizeName: "Size L", unitPrice: "40000", quantity: 1, note: "Ít đá", lineTotal: "45000", toppings: [{ toppingName: "Trân châu", price: "5000" }] }], payments: [{ id: "payment", method: "CARD", status: "FAILED", amount: "45000", createdAt: "2026-11-08T00:02:00Z", attemptNumber: 1 }], history: [{ fromStatus: null, toStatus: "PENDING", actorId: "admin-1", createdAt: "2026-11-08T00:00:00Z" }, { fromStatus: "PENDING", toStatus: "CANCELLED", actorId: "admin-1", createdAt: "2026-11-08T00:01:00Z" }] };
   render(<OrderMonitor orders={[order]} />);
-  fireEvent.click(screen.getByRole("button", { name: "Chi tiết đơn BL001" }));
-  expect(screen.getByText("Ít đá")).toBeDefined();
+  const trigger = screen.getByRole("button", { name: "Chi tiết đơn BL001" });
+  fireEvent.click(trigger);
+  expect(screen.getByRole("dialog", { name: "Chi tiết đơn BL001" })).toBeDefined();
+  expect(screen.getByText("Ghi chú: Ít đá")).toBeDefined();
+  expect(screen.getByText("Chi tiết đơn hàng")).toBeDefined();
+  expect(screen.getByText("Size L · 1 ly")).toBeDefined();
+  expect(screen.queryByText("Size Size L")).toBeNull();
+  expect(screen.getByText("Topping: Trân châu (5.000đ)")).toBeDefined();
+  expect(screen.getByText("Size L · 1 ly · Đơn giá: 40.000đ")).toBeDefined();
+  expect(screen.getByText("Thành tiền: 45.000đ")).toBeDefined();
+  expect(screen.getAllByText("08/11/2026 lúc 07:00:00")).toHaveLength(2);
+  expect(screen.getByText("WELCOME")).toBeDefined();
+  expect(screen.getByText("10 điểm")).toBeDefined();
+  expect(screen.queryByText("Giảm bằng điểm")).toBeNull();
+  expect(screen.getByText("Thẻ · Thất bại")).toBeDefined();
+  expect(screen.queryByRole("button", { name: /^Đóng$/ })).toBeNull();
+  expect(screen.queryByText("admin-1")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Sao chép ID" })).toBeNull();
   expect(screen.getByText("Chờ thanh toán → Đã hủy")).toBeDefined();
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Đóng chi tiết đơn hàng" }));
+  expect(screen.queryByRole("dialog", { name: "Chi tiết đơn BL001" })).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  fireEvent(screen.getByRole("dialog", { name: "Chi tiết đơn BL001" }), new Event("cancel", { bubbles: true, cancelable: true }));
+  expect(screen.queryByRole("dialog", { name: "Chi tiết đơn BL001" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Đã thanh toán" }));
   expect(screen.queryByText("BL001")).toBeNull();
   expect(screen.getByText("Không có đơn phù hợp.")).toBeDefined();
+});
+it("keeps expanded Admin details readable with multiple items and missing optional data", () => {
+  const order: Order = { id: "two", orderCode: "BL002", status: "PAID", version: 1, finalTotal: "60000", subtotal: "60000", createdAt: "2026-11-08T00:00:00Z", expiresAt: null, items: [
+    { id: "item-1", productName: "Latte", sizeName: null, unitPrice: "25000", quantity: 2, note: null, lineTotal: "50000", toppings: [] },
+    { id: "item-2", productName: "Trà đào", sizeName: "M", unitPrice: null, quantity: 1, note: "Ít ngọt", lineTotal: "10000", toppings: [{ toppingName: "Thạch đào", price: "3000" }] },
+  ], payments: [{ id: "success", method: "WALLET", status: "SUCCESS", amount: "60000", createdAt: "2026-11-08T00:03:00Z" }, { id: "failed", method: "CARD", status: "FAILED", amount: "60000", createdAt: "2026-11-08T00:02:00Z" }, { id: "fallback", method: "BANK_TRANSFER", status: "PROCESSING", amount: "60000" }], history: [] };
+  render(<OrderMonitor orders={[order]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Chi tiết đơn BL002" }));
+  expect(screen.getByRole("dialog", { name: "Chi tiết đơn BL002" })).toBeDefined();
+  expect(screen.getByText("Chưa có size · 2 ly")).toBeDefined();
+  expect(screen.queryByText("Topping: Không topping")).toBeNull();
+  expect(screen.getByText("Ghi chú: Ít ngọt")).toBeDefined();
+  expect(screen.getByText("Chưa có size · 2 ly · Đơn giá: 25.000đ")).toBeDefined();
+  expect(screen.getByText("Size M · 1 ly · Đơn giá: —")).toBeDefined();
+  expect(screen.getByText("Tạm tính")).toBeDefined();
+  expect(screen.getByText("Ví điện tử · Thành công")).toBeDefined();
+  expect(screen.getByText("Thẻ · Thất bại")).toBeDefined();
+  expect(screen.getByText("BANK_TRANSFER · PROCESSING")).toBeDefined();
+  expect(screen.queryByText("Chưa có giao dịch thanh toán.")).toBeNull();
+  expect(screen.getByText("Chưa có lịch sử trạng thái.")).toBeDefined();
+});
+it("shows a compact message when an order has no payment transactions", () => {
+  const order: Order = { id: "three", orderCode: "BL003", status: "PENDING", version: 1, finalTotal: "25000", createdAt: "2026-11-08T00:00:00Z", expiresAt: null, items: [{ id: "item-3", productName: "Americano", sizeName: null, quantity: 1, note: null, lineTotal: "25000", toppings: [] }], payments: [], history: [] };
+  render(<OrderMonitor orders={[order]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Chi tiết đơn BL003" }));
+  expect(screen.getByRole("dialog", { name: "Chi tiết đơn BL003" })).toBeDefined();
+  expect(screen.getByText("Chưa có giao dịch thanh toán.")).toBeDefined();
+  expect(screen.queryByText("Tạm tính")).toBeNull();
+  expect(screen.queryByText("Mã giảm giá")).toBeNull();
+  expect(screen.queryByText("Điểm sử dụng")).toBeNull();
 });

@@ -9,19 +9,23 @@ export type Order = {
   subtotal?: string;
   discountAmount?: string;
   pointsDiscount?: string;
+  pointsUsed?: number;
+  couponCodeSnapshot?: string | null;
+  note?: string | null;
   createdAt: string;
   expiresAt: string | null;
   items: {
     id: string;
     productName: string;
-    sizeName: string;
+    sizeName: string | null;
+    unitPrice?: string | null;
     quantity: number;
-    note: string;
+    note: string | null;
     lineTotal: string;
     toppings: { toppingName: string; price: string }[];
   }[];
-  payments: { id: string; status: string; method: string; amount: string; createdAt?: string; attemptNumber?: number | null; providerPaymentId?: string | null; refund?: { id: string; provider: string; status: "REQUESTED" | "PENDING" | "SUCCESS" | "FAILED" | "UNKNOWN"; amount: string; resolvedAt: string | null } | null }[];
-  history: { toStatus: string; createdAt: string }[];
+  payments: { id: string; status: string; method: string; amount: string; createdAt?: string; paidAt?: string | null; resolvedAt?: string | null; attemptNumber?: number | null; providerPaymentId?: string | null; refund?: { id: string; provider: string; status: "REQUESTED" | "PENDING" | "SUCCESS" | "FAILED" | "UNKNOWN"; amount: string; resolvedAt: string | null } | null }[];
+  history: { fromStatus?: string | null; toStatus: string; actorId?: string | null; orderVersion?: number; createdAt: string }[];
 };
 export async function getStore<T>(path: string) {
   return (await authHttp.get<T>(apiUrl(path))).data;

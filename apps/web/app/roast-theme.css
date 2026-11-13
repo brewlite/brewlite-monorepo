@@ -1883,6 +1883,44 @@ html { scroll-padding-top: 100px; }
 .monitor-item + .monitor-item { margin-top: 14px; }
 .monitor-item small, .monitor-history { display: block; color: #666; font-size: 18px; margin-top: 4px; }
 .order-monitor > p { color: #666; }
+.admin-workspace .order-monitor-detail-modal { box-sizing: border-box; width: min(1440px, calc(200vw - 64px)); max-width: calc(200vw - 64px); max-height: calc(200svh - 64px); min-width: 0; padding: 0; }
+.order-monitor-modal-content { display: flex; flex-direction: column; gap: 16px; padding: 24px; color: #111; font-size: 16px; line-height: 1.5; }
+.order-monitor-modal-content section { min-width: 0; padding: 0; }
+.order-monitor-modal-content h2 { margin: 0 0 8px; font-size: 22px; line-height: 1.4; font-weight: 600; }
+.order-monitor-modal-content h3 { margin: 0 0 8px; font-size: 17px; line-height: 1.5; font-weight: 600; }
+.order-monitor-modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.order-monitor-modal-heading > div { min-width: 0; }
+.order-monitor-detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; color: #666; font-size: 15px; line-height: 1.5; }
+.order-monitor-detail-meta strong { color: #111; font-size: 15px; font-weight: 600; }
+.order-monitor-modal-close { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #555; font: 400 28px/1 Arial, sans-serif; }
+.order-monitor-modal-close:hover { background: #eee; color: #111; }
+.order-monitor-modal-close:focus-visible, .order-monitor-modal-done:focus-visible { outline: 2px solid #111; outline-offset: 3px; }
+.order-monitor-order-note { margin: -4px 0 0; color: #666; font-size: 16px; }
+.order-monitor-modal-content dl { margin: 0; }
+.order-monitor-detail-field { display: flex; justify-content: flex-start; gap: 12px; max-width: 560px; padding: 4px 0; border-bottom: 1px solid #eee; font-size: 16px; }
+.order-monitor-detail-field:last-child { border-bottom: 0; }
+.order-monitor-detail-field dt { color: #666; font-weight: 400; }
+.order-monitor-detail-field dd { margin: 0 0 0 auto; text-align: right; overflow-wrap: anywhere; font-weight: 400; }
+.order-monitor-products, .order-monitor-events { list-style: none; padding: 0; margin: 0; }
+.order-monitor-products li, .order-monitor-events li { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #eee; }
+.order-monitor-products li:last-child, .order-monitor-events li:last-child { border-bottom: 0; }
+.order-monitor-products li > div, .order-monitor-events li { min-width: 0; }
+.order-monitor-products li > div:first-child { flex: 1; min-width: 0; }
+.order-monitor-products li > div > strong { display: block; font-size: 18px; line-height: 1.5; font-weight: 600; }
+.order-monitor-products li > div > span { display: block; color: #666; font-size: 16px; font-weight: 400; margin-top: 4px; overflow-wrap: anywhere; }
+.order-monitor-products li > div > span:first-of-type { font-size: 15px; }
+.order-monitor-events span { display: block; color: #666; font-size: 16px; font-weight: 400; margin-top: 4px; overflow-wrap: anywhere; }
+.order-monitor-events time { display: block; color: #666; font-size: 15px; font-weight: 400; margin-top: 4px; overflow-wrap: anywhere; }
+.order-monitor-line-total { flex: 0 0 auto; align-self: flex-start; font-size: 16px; font-weight: 500; white-space: nowrap; }
+.order-monitor-summary .order-monitor-detail-field:last-child dd strong { font-size: 20px; line-height: 1.5; font-weight: 600; }
+.order-monitor-modal-done { width: 100%; margin-top: 8px; padding: 10px 16px; border: 1px solid #111; border-radius: 6px; background: #111; color: #fff; font: inherit; font-size: 16px; font-weight: 600; }
+.order-monitor-modal-done:hover { background: #333; }
+.order-monitor-events { display: grid; gap: 4px; }
+.order-monitor-events:not(.order-monitor-status-events) li { align-items: baseline; justify-content: flex-start; gap: 12px; }
+.order-monitor-events:not(.order-monitor-status-events) li time { margin-left: auto; }
+.order-monitor-status-events li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 2px 16px; }
+.order-monitor-status-events li > time { grid-column: 2; grid-row: 1 / span 2; text-align: right; min-width: 0; }
+.order-monitor-empty { color: #666; margin: 0; font-size: 14px; }
 @media (max-width: 1100px) {
   .admin-shell { grid-template-columns: 220px minmax(0, 1fr); }
   .admin-main-panel { padding: 24px; }
@@ -1897,6 +1935,42 @@ html { scroll-padding-top: 100px; }
   .admin-sidebar button { white-space: nowrap; }
   .admin-store-link { flex-shrink: 0; border: 0; margin: 0; padding-top: 12px; }
   .admin-main-panel { padding: 20px 16px; }
+  .order-monitor .management-table { overflow-x: visible; }
+  .order-monitor .management-table table,
+  .order-monitor .management-table tbody { display: block; min-width: 0; width: 100%; }
+  .order-monitor .management-table thead { display: none; }
+  .order-monitor .management-table .order-monitor-main-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; border-bottom: 1px solid #ddd; }
+  .order-monitor .management-table .order-monitor-main-row td { display: block; min-width: 0; padding: 12px 8px; border-bottom: 0; }
+  .order-monitor .management-table .order-monitor-main-row td:nth-child(1) { grid-column: 1; }
+  .order-monitor .management-table .order-monitor-main-row td:nth-child(2) { grid-column: 1 / -1; }
+  .order-monitor .management-table .order-monitor-main-row td:nth-child(3),
+  .order-monitor .management-table .order-monitor-main-row td:nth-child(4) { grid-column: 1; }
+  .order-monitor .management-table .order-monitor-main-row td:nth-child(5) { grid-column: 2; grid-row: 1; align-self: center; }
+  .admin-workspace .order-monitor-detail-modal { width: calc(200vw - 64px); max-width: calc(200vw - 64px); max-height: calc(200svh - 64px); }
+  .order-monitor-modal-content { padding: 16px; }
+  .order-monitor-products li { display: block; }
+  .order-monitor-line-total { display: block; margin-top: 8px; white-space: normal; overflow-wrap: anywhere; }
+  .order-monitor-status-events li { grid-template-columns: 1fr; gap: 2px; }
+  .order-monitor-status-events li > time { grid-column: auto; grid-row: auto; text-align: left; }
+}
+@media (min-width: 761px) {
+  .order-monitor-modal-content { font-size: 32px; line-height: 1.5; }
+  .order-monitor-modal-content h2 { font-size: 44px; line-height: 1.4; }
+  .order-monitor-modal-content h3 { font-size: 34px; line-height: 1.5; }
+  .order-monitor-detail-meta,
+  .order-monitor-detail-meta strong { font-size: 30px; line-height: 1.5; }
+  .order-monitor-modal-close { font-size: 56px; }
+  .order-monitor-order-note,
+  .order-monitor-detail-field,
+  .order-monitor-products li > div > span,
+  .order-monitor-events span,
+  .order-monitor-modal-done { font-size: 32px; }
+  .order-monitor-products li > div > span:first-of-type,
+  .order-monitor-events time { font-size: 30px; }
+  .order-monitor-products li > div > strong { font-size: 36px; line-height: 1.5; }
+  .order-monitor-line-total { font-size: 32px; }
+  .order-monitor-summary .order-monitor-detail-field:last-child dd strong { font-size: 40px; line-height: 1.5; }
+  .order-monitor-empty { font-size: 28px; }
 }
 .admin-workspace { font-size: 26px; line-height: 1.5; }
 .admin-workspace .admin-page-heading h1 { font-size: 38px; }
