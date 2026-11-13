@@ -46,7 +46,7 @@ describe('Thanh toán với PostgreSQL thật', () => {
         orderCode: `TEST-${randomUUID()}`,
         subtotal: '45000',
         finalTotal: '45000',
-        status: OrderStatus.PENDING_PAYMENT,
+        status: OrderStatus.PENDING,
       },
     });
   });
@@ -155,7 +155,7 @@ describe('Thanh toán với PostgreSQL thật', () => {
         where: { id: orderId },
       });
 
-      expect(pendingOrder.status).toBe(OrderStatus.PENDING_PAYMENT);
+      expect(pendingOrder.status).toBe(OrderStatus.PENDING);
       expect(await db.notification.count({ where: { userId } })).toBe(0);
 
       // Gửi lại cùng mã: nhận kết quả thất bại cũ.

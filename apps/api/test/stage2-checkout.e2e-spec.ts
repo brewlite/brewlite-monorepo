@@ -216,10 +216,10 @@ import path from 'node:path';
   it('supports Assignment payment/history endpoints with ownership and validation', async () => {
     const o = await placed();
     await post('/payments', { orderId: 'invalid', method: 'WALLET' }).expect(400);
-    await post('/payments', { orderId: o.id, method: 'WALLET' }, randomUUID(), 1).expect(404);
+    await post('/payments', { orderId: o.id, method: 'WALLET', idempotencyKey: randomUUID() }, randomUUID(), 1).expect(404);
     const key = randomUUID();
-    const first = (await post('/payments', { orderId: o.id, method: 'WALLET' }, key).expect(201)).body;
-    expect((await post('/payments', { orderId: o.id, method: 'WALLET' }, key).expect(201)).body.id).toBe(first.id);
+    const first = (await post('/payments', { orderId: o.id, method: 'WALLET', idempotencyKey: key }, key).expect(200)).body;
+    expect((await post('/payments', { orderId: o.id, method: 'WALLET', idempotencyKey: key }, key).expect(200)).body.id).toBe(first.id);
     expect((await get('/orders/me').expect(200)).body.some((row: { id: string }) => row.id === o.id)).toBe(true);
     expect((await get('/orders/me', 1).expect(200)).body.some((row: { id: string }) => row.id === o.id)).toBe(false);
   });
