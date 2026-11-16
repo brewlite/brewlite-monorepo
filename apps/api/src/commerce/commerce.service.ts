@@ -99,7 +99,7 @@ function json(value: unknown): Prisma.InputJsonValue {
 export class CommerceService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private reconciliationRunning = false;
-  private readonly inquiries = new Map<string, { at: number; attempts: number }>();
+  private readonly inquiries = new Map<string, number>();
   constructor(
     private readonly db: PrismaService,
     private readonly inventory: InventoryService,
@@ -1102,9 +1102,15 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     const p = await this.db.payment.findFirst({ where: { id, ...(userId ? { order: { userId, isLegacy: false } } : { order: { isLegacy: false } }) } });
     if (!p) fail('NOT_FOUND', 'Không tìm thấy thanh toán.', 404);
     if (!p.providerPaymentId?.startsWith('vnpay:') || !['PENDING', 'UNKNOWN'].includes(p.status)) return p;
+    const now = Date.now();
+    // A network outage must not permanently exhaust reconciliation attempts.
+    // Retain the provider cooldown, including across concurrent requests.
+    for (const [paymentId, at] of this.inquiries) {
+      if (now - at >= 300000) this.inquiries.delete(paymentId);
+    }
     const previous = this.inquiries.get(id);
-    if (previous && (Date.now() - previous.at < 300000 || previous.attempts >= 10)) return { ...p, reconciliation: { reason: previous.attempts >= 10 ? 'ATTEMPT_LIMIT' : 'RATE_LIMITED', retryAfterSeconds: Math.max(0, Math.ceil((300000 - (Date.now() - previous.at)) / 1000)) } };
-    this.inquiries.set(id, { at: Date.now(), attempts: (previous?.attempts ?? 0) + 1 });
+    if (previous !== undefined) return { ...p, reconciliation: { reason: 'RATE_LIMITED', retryAfterSeconds: Math.ceil((300000 - (now - previous)) / 1000) } };
+    this.inquiries.set(id, now);
     let diagnostic: VNPayDiagnostic = { reason: 'NO_VERIFIED_RESULT' };
     try {
       const result = await this.vnpay.query(p.providerPaymentId.slice(6), p.createdAt, p.amount.toFixed(0), (value) => { diagnostic = value; });
