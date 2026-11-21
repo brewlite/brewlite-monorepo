@@ -43,3 +43,158 @@ Không dùng script này để cấp tài khoản production.
 ## Hoàn thiện delivery
 
 Pipeline CD đã chuẩn bị tại `.github/workflows/cd.yml`; xem [cấu hình và rollback](deploy/CD-SETUP.md), [UML nguồn và bản xuất](docs/diagrams/README.md). Chưa có minh chứng CD chạy trên GitHub cho các thay đổi chưa commit này.
+
+
+## Hướng dẫn bàn giao và vận hành
+
+### 1. Repository và production
+
+- Repository: https://github.com/brewlite/brewlite-monorepo
+- Frontend: https://brewlite-sgu.duckdns.org/
+- API Health: https://brewlite-sgu.duckdns.org/api/health
+- API Products: https://brewlite-sgu.duckdns.org/api/products
+
+### 2. Chạy hệ thống trên máy local
+
+Yêu cầu Node.js 24, npm, Git và Docker Desktop.
+
+Clone repository:
+
+```powershell
+git clone https://github.com/brewlite/brewlite-monorepo.git
+cd brewlite-monorepo
+```
+
+Khởi động PostgreSQL:
+
+```powershell
+docker compose up -d postgres
+```
+
+Backend:
+
+```powershell
+cd apps/api
+npm ci
+```
+
+Sao chép `.env.example` thành `.env` nếu chưa có,
+sau đó cấu hình DATABASE_URL, JWT_SECRET và SMTP
+phù hợp theo `docs/deployment.md`.
+
+```powershell
+npx prisma migrate deploy
+npm run start:dev
+```
+
+Mở terminal khác để chạy Frontend:
+
+```powershell
+cd apps/web
+npm ci
+```
+
+Sao chép `.env.example` thành `.env.local` nếu
+chưa có và cấu hình NEXT_PUBLIC_API_URL.
+
+```powershell
+npm run dev
+```
+
+Truy cập:
+
+- Frontend: http://localhost:3000
+- API: http://localhost:3001/api/health
+
+Không sử dụng dữ liệu hoặc tài khoản production
+trong môi trường local.
+
+### 3. Kiểm thử và build
+
+Tại `apps/api`:
+
+```powershell
+npm run lint
+npm test
+npm run build
+```
+
+Tại `apps/web`:
+
+```powershell
+npm run lint
+npm test
+npm run build
+```
+
+Integration tests cần database kiểm thử riêng.
+Không chạy test có thay đổi dữ liệu trên database
+production.
+
+### 4. Đóng gói Docker image
+
+Tại thư mục gốc repository:
+
+```powershell
+$sha = (git rev-parse HEAD).Trim()
+
+docker build --platform linux/amd64 `
+  -t "brewlite-api:$sha" ./apps/api
+
+docker build --platform linux/amd64 `
+  --build-arg NEXT_PUBLIC_API_URL=https://brewlite-sgu.duckdns.org `
+  --build-arg NEXT_PUBLIC_ENABLE_VNPAY_SANDBOX=false `
+  -t "brewlite-web:$sha" ./apps/web
+```
+
+### 5. Quy trình deploy production
+
+Workflow được khai báo tại:
+
+`.github/workflows/cd.yml`
+
+Trình tự:
+
+CI → Docker Build → GHCR → Production Approval
+→ EC2 Deploy → Health Check → Smoke Test.
+
+Chỉ người được phân quyền mới thực hiện triển khai.
+
+Trước khi deploy cần:
+
+- Kiểm tra CI thành công.
+- Xác nhận phiên bản và commit SHA.
+- Kiểm tra secrets và quyền SSH của GitHub Actions.
+- Kiểm tra quyền pull private image từ GHCR trên EC2.
+- Kiểm tra database backup và kế hoạch migration.
+- Có phê duyệt production.
+
+Không kích hoạt release tag `v*` hoặc chạy CD thủ
+công khi các điều kiện trên chưa được đáp ứng.
+
+Hướng dẫn chi tiết: `deploy/CD-SETUP.md`.
+
+### 6. Rollback
+
+Khi triển khai thất bại mà chưa thực hiện migration,
+script `deploy/release.sh` được thiết kế để khôi phục
+Docker image ứng dụng trước đó.
+
+Nếu migration đã bắt đầu, không tự động rollback
+image cũ vì có thể gây bất tương thích database.
+
+Cần kiểm tra log, backup và lập phương án khắc phục
+được phê duyệt.
+
+Không sử dụng `prisma migrate reset`,
+`docker compose down -v` hoặc xóa database production.
+
+### 7. Tài liệu bàn giao
+
+- `README.md`: Hướng dẫn sử dụng repository.
+- `docs/deployment.md`: Hướng dẫn vận hành.
+- `deploy/CD-SETUP.md`: Cấu hình CD và rollback.
+- `docs/delivery/RELEASE_NOTES_DRAFT.md`: Bản nháp Release Notes.
+
+Lưu ý: CD production qua GitHub Actions chưa được
+kiểm chứng bằng một lượt triển khai thực tế.
