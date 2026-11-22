@@ -1,71 +1,144 @@
 @startuml
 !theme plain
-title BrewLite — Đặt và thanh toán (source hiện tại)
-|Khách hàng|
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam ActivityBackgroundColor #F8FBFF
+skinparam ActivityBorderColor #35567C
+skinparam ActivityDiamondBackgroundColor #FFF8E7
+skinparam ActivityDiamondBorderColor #B5852A
+
+title BrewLite — Sơ đồ Hoạt Động: Đặt Món, Thanh Toán & Pha Chế (Assignment 2 - Task 2.1)
+
+|Khách hàng / Nhân viên POS|
 start
-:Xem thực đơn và chọn món;
-:Chọn size, topping, số lượng, ghi chú;
-|NestJS|
-:Validate cấu hình và tồn theo Size;
-if (Còn khả dụng?) then (không)
-  |Khách hàng|
-  :Nhận thông báo, chọn món khác;
-  stop
-else (có)
-  :Cập nhật giỏ bằng version và Idempotency-Key;
+:Mở Thực đơn (/menu);
+
+|NestJS API & PostgreSQL|
+:GET /api/products\n(chỉ trả món isAvailable=true &\ncó ít nhất 1 Size isAvailable, onHand != null);
+
+|Khách hàng / Nhân viên POS|
+:Xem thực đơn, lọc danh mục / tìm kiếm,\nchọn món → Size, Topping, SL (1..20), Ghi chú;
+
+|Next.js Web UI|
+if (Vai trò hiện tại?) then (Guest)
+  :Lưu vào giỏ cục bộ\n(sessionStorage);
+elseif (STAFF - Đặt tại quầy) then
+  :Lưu vào giỏ POS riêng theo staffId\n(không gọi /api/cart của CUSTOMER);
+else (CUSTOMER)
+  |NestJS API & PostgreSQL|
+  :POST /api/cart/items\nValidate cấu hình, Size.onHand != null,\ntổng SL cùng Size <= available;
+  if (Còn khả dụng?) then (không)
+    |Khách hàng / Nhân viên POS|
+    :Nhận cảnh báo hết hàng / chưa nhập tồn,\nchỉnh cấu hình hoặc chọn món khác;
+    stop
+  else (có)
+    :Lưu CartItem vào PostgreSQL\n(tăng Cart.version, kiểm tra Idempotency-Key);
+  endif
 endif
-|Khách hàng|
-while (Chọn thêm?) is (có)
-  :Chọn món khác và cập nhật giỏ;
+
+|Khách hàng / Nhân viên POS|
+while (Chọn thêm món?) is (có)
+  :Chọn món khác & cập nhật giỏ hàng;
 endwhile (không)
-:Xem giỏ, xác nhận mua;
-if (Đã đăng nhập?) then (chưa)
-  :Đăng ký / OTP / đăng nhập;
+
+:Mở Giỏ hàng (/cart hoặc drawer) → Xác nhận đặt đơn;
+
+if (Kênh đặt hàng?) then (Khách hàng Online - CUSTOMER_APP)
+  if (Đã đăng nhập CUSTOMER?) then (chưa)
+    :Đăng nhập hoặc Đăng ký + xác minh Gmail OTP;
+    |NestJS API & PostgreSQL|
+    :Cấp HttpOnly JWT + Refresh Cookie;\nPOST /api/cart/merge gộp giỏ Guest vào DB (CAS version);
+  endif
+  |Khách hàng / Nhân viên POS|
+  :Nhập mã giảm giá (tùy chọn) & số điểm thưởng muốn dùng;
+  |NestJS API & PostgreSQL|
+  :POST /api/cart/calculate → tính giá Decimal,\nkiểm tra tồn kho, coupon (cap 50%), điểm (100đ/pt, cap 50%)\n→ trả Quote + quoteFingerprint (chưa giữ tồn);
+  :POST /api/orders (Cart.version + quoteFingerprint + Idempotency-Key);
+else (Nhân viên POS - COUNTER_POS)
+  |Khách hàng / Nhân viên POS|
+  :Nhập Tên khách / Số thẻ & Ghi chú\n(không áp dụng mã giảm giá & điểm thưởng);
+  |NestJS API & PostgreSQL|
+  :POST /api/staff/pos/orders (Idempotency-Key);
 endif
-:Chọn coupon và điểm;
-|NestJS|
-:Tính giá bằng Decimal, validate quota và điểm;
-:Transaction + khóa/CAS: giữ tồn, quota, điểm;
-if (Hợp lệ?) then (không)
-  :Rollback, trả lỗi; giữ giỏ;
+
+|NestJS API & PostgreSQL|
+:BEGIN SERIALIZABLE + Khóa / CAS:\nReprice server-side, giữ tồn Size.reserved += qty,\ngiữ quota Promotion.reservedCount, giữ User.reservedPoints;
+if (Tồn kho / giá / phiên bản / quota hợp lệ?) then (không)
+  :ROLLBACK toàn bộ, giữ nguyên giỏ hàng;\ntrả lỗi 400/409 (OUT_OF_STOCK / QUOTE_CHANGED / ...);
+  |Khách hàng / Nhân viên POS|
+  :Xem thông báo lỗi & điều chỉnh giỏ hàng;
   stop
+else (hợp lệ)
+  :Tạo Order (PENDING), snapshot OrderItem/Topping,\nOrderReservation (HELD, TTL 10 phút), OrderStatusHistory → COMMIT;
 endif
-:Tạo Order PENDING, snapshot, reservation HELD 10 phút;
-|Khách hàng|
-:Chọn Ví/Thẻ mô phỏng;
-|NestJS|
-:Tạo attempt idempotent;
-if (Kết quả đã xác minh?) then (UNKNOWN)
-  :Giữ trạng thái; chặn retry/hủy; chờ đối soát;
-  stop
-elseif (FAILED?) then (có)
-  :Order PAYMENT_FAILED; giữ giỏ và tài nguyên;
-  |Khách hàng|
-  :Retry trong TTL hoặc hủy;
-  |NestJS|
-  :Retry -> PENDING; hủy/hết hạn hợp lệ -> CANCELLED + release;
-  stop
-else (SUCCESS)
-  :Transaction: PAID + consume tồn/coupon/điểm;
-  :Ghi EARN một lần; dọn giỏ nếu version còn khớp;
+
+|Khách hàng / Nhân viên POS|
+:Chọn phương thức thanh toán;
+
+if (Phương thức thanh toán?) then (Tiền mặt tại quầy - chỉ COUNTER_POS)
+  |NestJS API & PostgreSQL|
+  if (STAFF có CashShift đang OPEN?) then (không)
+    :Từ chối 409 (CASH_SHIFT_REQUIRED);
+    |Khách hàng / Nhân viên POS|
+    :Mở ca thu ngân (nhập quỹ đầu ca) rồi thu lại;
+    stop
+  else (có)
+    :Kiểm tra tiền khách đưa >= finalTotal,\ntính tiền thối (changeGiven);
+    :Transaction: Payment(CASH, SUCCESS, cashShiftId),\nOrder(PAID), consume tồn/coupon;
+  endif
+else (Online: Ví/Thẻ mô phỏng, VNPay Sandbox\nhoặc Tại quầy: Chuyển khoản QR)
+  |NestJS API & PostgreSQL|
+  :Kiểm tra chủ đơn / TTL 10 phút / số lần thử <= 3 /\nkhông có attempt unresolved → tạo Payment(PENDING);
+  |Cổng thanh toán (Mock / VNPay)|
+  :Xử lý giao dịch\n(Online: Mock / VNPay HMAC-SHA512; Tại quầy: STAFF kiểm tra QR & xác nhận);
+  |NestJS API & PostgreSQL|
+  if (Kết quả đã xác minh?) then (UNKNOWN / Timeout)
+    :Giữ Payment(UNKNOWN), chặn retry/hủy mù;\nchờ IPN hoặc đối soát VNPay QueryDr (/reconcile);
+    stop
+  elseif (FAILED?) then (có)
+    :Payment(FAILED) + Order(PAYMENT_FAILED);\ngiữ nguyên giỏ hàng & OrderReservation(HELD);
+    |Khách hàng / Nhân viên POS|
+    if (Thử thanh toán lại trong TTL\n& số lần thử < 3?) then (có)
+      :Gửi attempt thanh toán mới\n(Idempotency-Key mới);
+      |NestJS API & PostgreSQL|
+      :Order chuyển lại PENDING để xử lý thanh toán;
+      stop
+    else (hủy hoặc hết 10 phút)
+      |NestJS API & PostgreSQL|
+      :Order CANCELLED + release Size.reserved,\nPromotion.reservedCount, User.reservedPoints;
+      stop
+    endif
+  else (SUCCESS trong TTL)
+    :Transaction: PaymentEvent(PROCESSED, unique),\nPayment(SUCCESS), Order(PAID),\nconsume tồn/coupon/điểm (REDEEM);
+    :Nếu CUSTOMER_APP: cộng điểm EARN một lần\nfloor(finalTotal/10000), dọn giỏ DB bằng CAS,\nghi Notification(PAYMENT_SUCCESS);
+    note right
+      Nếu VNPay báo SUCCESS sau khi đơn
+      đã CANCELLED/hết hạn → ghi PaymentEvent
+      (REQUIRES_REVIEW), không tự trừ tồn.
+    end note
+  endif
 endif
-|Khách hàng|
-:Xem mã đơn, kết quả và lịch sử;
-if (Khách yêu cầu hủy PAID?) then (có)
-  |NestJS|
-  :Khóa Order, check version, mock provider và ledger;
-  if (Hoàn tự động hợp lệ?) then (có)
-    :Refund MOCK SUCCESS; hoàn tồn/coupon/điểm;
-    :EARN_REVERSAL, Order CANCELLED; Payment vẫn SUCCESS;
-  else (không)
-    :Rollback; báo cần đối soát / gateway chưa hỗ trợ;
+
+|Next.js Web UI|
+:Hiển thị mã đơn, trạng thái PAID & biên lai;
+
+|Khách hàng / Nhân viên POS|
+if (Yêu cầu hủy đơn PAID\ntrước khi pha chế?) then (có)
+  |NestJS API & PostgreSQL|
+  :Khóa hàng Order + User, kiểm tra expectedVersion,\nchưa chuyển PREPARING, kiểm tra provider & điểm đã dùng;
+  if (Đủ điều kiện hoàn tiền tự động?\nMock online hoặc POS Tiền mặt/Mock) then (có)
+    :Ghi Refund(SUCCESS) (gắn CashShift OPEN nếu tiền mặt\n+ lý do bắt buộc nếu POS), hoàn tồn/coupon/điểm,\nghi EARN_REVERSAL, Order → CANCELLED\n(Payment gốc giữ nguyên SUCCESS);
+  else (không - VNPay / đã pha chế / đã tiêu điểm)
+    :ROLLBACK & trả 409 kèm lý do;\nkhông giả lập hoàn tiền;
   endif
   stop
 endif
-|Nhân viên|
-:Khóa cùng Order, check version;
-:PAID -> PREPARING -> READY -> COMPLETED;
-|Khách hàng|
-:Nhận món tại quầy;
+
+|Nhân viên pha chế (STAFF)|
+:Nhận đơn trên Hàng đợi pha chế (/staff/orders);\nKhóa Order + kiểm tra expectedVersion;
+:Cập nhật tuần tự: PAID → PREPARING → READY → COMPLETED\n(ghi OrderStatusHistory & Notification cho CUSTOMER);
+
+|Khách hàng / Nhân viên POS|
+:Nhận đồ uống tại quầy;
 stop
 @enduml

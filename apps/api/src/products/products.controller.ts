@@ -10,6 +10,11 @@ export class ProductsController {
     return this.productsService.findAll();
   }
 
+  @Get('recommendations')
+  async getRecommendations() {
+    return this.productsService.findRecommendations();
+  }
+
   @Get(':id')
   async getProductById(@Param('id') id: string) {
     return this.productsService.findOne(id);

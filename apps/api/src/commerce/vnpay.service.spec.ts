@@ -25,7 +25,27 @@ describe('VNPay Sandbox signing (controlled test configuration only)', () => {
   it('does not label pending/reversal/fraud or contradictory responses as success/failure', () => {
     expect(service.outcome({ vnp_ResponseCode: '00', vnp_TransactionStatus: '00', vnp_TransactionNo: '123' })).toBe('SUCCESS');
     expect(service.outcome({ vnp_ResponseCode: '24', vnp_TransactionStatus: '02' })).toBe('FAILED');
+    expect(service.outcome({ vnp_ResponseCode: '24', vnp_TransactionStatus: '24' })).toBe('FAILED');
+    expect(service.outcome({ vnp_ResponseCode: '24' })).toBe('FAILED');
+    expect(service.outcome({ vnp_ResponseCode: '24', vnp_TransactionStatus: '00' })).toBe('UNKNOWN');
+    expect(service.outcome({ vnp_ResponseCode: '00' })).toBe('UNKNOWN');
     for (const state of ['01', '04', '05', '07', '99']) expect(service.outcome({ vnp_ResponseCode: '00', vnp_TransactionStatus: state })).toBe('UNKNOWN');
+  });
+  it('verifies cancelled return callbacks with empty optional fields or omitted transaction status', () => {
+    const cancelled = {
+      vnp_TmnCode: 'TESTONLY',
+      vnp_TxnRef: 'a'.repeat(32),
+      vnp_Amount: '3500000',
+      vnp_ResponseCode: '24',
+      vnp_TransactionNo: '0',
+      vnp_CardType: '',
+      vnp_BankTranNo: '',
+    };
+    const signedNoEmpty = { ...cancelled, vnp_SecureHash: vnSignature(cancelled, process.env.VNPAY_HASH_SECRET!, true) };
+    const signedWithEmpty = { ...cancelled, vnp_SecureHash: vnSignature(cancelled, process.env.VNPAY_HASH_SECRET!, false) };
+    expect(service.verify(signedNoEmpty)).not.toBeNull();
+    expect(service.verify(signedWithEmpty)).not.toBeNull();
+    expect(service.outcome(service.verify(signedNoEmpty)!)).toBe('FAILED');
   });
   it('fails closed when merchant configuration is missing', () => {
     const secret = process.env.VNPAY_HASH_SECRET; delete process.env.VNPAY_HASH_SECRET;
@@ -81,6 +101,40 @@ describe('VNPay Sandbox signing (controlled test configuration only)', () => {
       expect(reports[0]).toEqual({ reason: 'PROVIDER_ERROR', responseCode: '97', signatureVerified: true });
       raw.vnp_ResponseCode = '00';
       expect((await service.query('a'.repeat(32), new Date(), '45000'))?.outcome).toBe('SUCCESS');
+    } finally { globalThis.fetch = previousFetch; }
+  });
+  it('accepts null optional fields in signed querydr responses while still rejecting non-string tampered fields', async () => {
+    const previousFetch = globalThis.fetch;
+    const fields = ['vnp_ResponseId', 'vnp_Command', 'vnp_ResponseCode', 'vnp_Message', 'vnp_TmnCode', 'vnp_TxnRef', 'vnp_Amount', 'vnp_BankCode', 'vnp_PayDate', 'vnp_TransactionNo', 'vnp_TransactionType', 'vnp_TransactionStatus', 'vnp_OrderInfo', 'vnp_PromotionCode', 'vnp_PromotionAmount'];
+    const raw: Record<string, string | null> = {
+      vnp_ResponseId: 'response-null-optional',
+      vnp_Command: 'querydr',
+      vnp_ResponseCode: '00',
+      vnp_Message: 'Success',
+      vnp_TmnCode: 'TESTONLY',
+      vnp_TxnRef: 'a'.repeat(32),
+      vnp_Amount: '4500000',
+      vnp_BankCode: 'NCB',
+      vnp_PayDate: '20261116080000',
+      vnp_TransactionNo: '123456',
+      vnp_TransactionType: '01',
+      vnp_TransactionStatus: '00',
+      vnp_OrderInfo: 'Test order',
+      vnp_PromotionCode: null,
+      vnp_PromotionAmount: null,
+    };
+    const vnp_SecureHash = createHmac('sha512', process.env.VNPAY_HASH_SECRET!).update(fields.map((key) => raw[key] ?? '').join('|')).digest('hex');
+    const reports: VNPayDiagnostic[] = [];
+    try {
+      globalThis.fetch = async () => new Response(JSON.stringify({ ...raw, vnp_SecureHash }));
+      expect((await service.query('a'.repeat(32), new Date(), '45000', (report) => reports.push(report)))?.outcome).toBe('SUCCESS');
+      expect(reports[0]).toEqual({ reason: 'VERIFIED', responseCode: '00', signatureVerified: true });
+      globalThis.fetch = async () => new Response(JSON.stringify({ ...raw, vnp_SecureHash: null }));
+      expect(await service.query('a'.repeat(32), new Date(), '45000', (report) => reports.push(report))).toBeNull();
+      expect(reports[1].reason).toBe('MISSING_SIGNATURE');
+      globalThis.fetch = async () => new Response(JSON.stringify({ ...raw, vnp_Amount: 4500000, vnp_SecureHash }));
+      expect(await service.query('a'.repeat(32), new Date(), '45000', (report) => reports.push(report))).toBeNull();
+      expect(reports[2].reason).toBe('INVALID_RESPONSE');
     } finally { globalThis.fetch = previousFetch; }
   });
 });

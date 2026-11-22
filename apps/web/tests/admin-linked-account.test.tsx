@@ -1,0 +1,44 @@
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { AdminOrderDetail } from "../components/admin/admin-order-detail";
+import { AdminLinkedAccountDialog } from "../components/admin/admin-linked-account-dialog";
+import type { Order } from "../services/store.service";
+const mocks = vi.hoisted(() => ({ get: vi.fn(), send: vi.fn(), role: "ADMIN" }));
+vi.mock("../services/store.service", () => ({ getStore: mocks.get, sendStore: mocks.send }));
+vi.mock("../lib/auth-store", () => ({ useAuthUser: () => ({ id: "admin", role: mocks.role }) }));
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function(this: HTMLDialogElement) { this.removeAttribute("open"); } });
+const order: Order = { id: "order", orderCode: "BL-LINK", status: "READY", version: 2, finalTotal: "35000", createdAt: "2026-11-13T01:00:00Z", expiresAt: null, items: [], payments: [], user: { id: "customer", fullName: "Khách hàng A", email: "customer@example.test" }, history: [{ toStatus: "READY", actorId: "staff", actor: { id: "staff", fullName: "Nhân viên A", email: "staff@example.test", role: "STAFF" }, createdAt: "2026-11-13T01:01:00Z" }] };
+beforeEach(() => { mocks.role = "ADMIN"; mocks.get.mockReset(); });
+afterEach(cleanup);
+it("opens staff profile from the order and Escape closes only the account dialog", async () => {
+  mocks.get.mockImplementation((path: string) => Promise.resolve(path.endsWith("/detail") ? { id: "staff", fullName: "Nhân viên A", email: "staff@example.test", role: "STAFF", isActive: true, emailVerifiedAt: "2026-11-01T00:00:00Z", createdAt: "2026-11-01T00:00:00Z" } : { participatedOrders: 2, totalUpdates: 4, transitions: [], recentEvents: [] }));
+  render(<AdminOrderDetail order={order} onClose={vi.fn()} allowAccountLinks />);
+  fireEvent.click(screen.getByRole("button", { name: "Xem tài khoản người cập nhật Nhân viên A" }));
+  await screen.findByText("Đơn đã tham gia xử lý");
+  expect(screen.getAllByRole("dialog")).toHaveLength(2);
+  expect(mocks.get).toHaveBeenCalledWith("/admin/users/staff/detail");
+  expect(mocks.get).toHaveBeenCalledWith("/admin/users/staff/activity");
+  fireEvent(screen.getByRole("dialog", { name: "Chi tiết nhân viên" }), new Event("cancel", { bubbles: true, cancelable: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Chi tiết nhân viên" })).toBeNull());
+  expect(screen.getByRole("dialog", { name: "Chi tiết đơn BL-LINK" })).toBeDefined();
+});
+it("opens customer details with real order statistics instead of staff activity", async () => {
+  mocks.get.mockImplementation((path: string) => Promise.resolve(path.endsWith("/detail") ? { id: "customer", fullName: "Khách hàng A", email: "customer@example.test", role: "CUSTOMER", isActive: true, loyaltyPoints: 4 } : path.endsWith("/order-stats") ? { totalOrders: 3, completedOrders: 2, cancelledOrders: 1 } : { items: [], page: 1, pageSize: 5, total: 0, totalPages: 0 }));
+  render(<AdminOrderDetail order={order} onClose={vi.fn()} allowAccountLinks />);
+  fireEvent.click(screen.getByRole("button", { name: "Xem tài khoản khách hàng Khách hàng A" }));
+  await screen.findByText("Tổng đơn hàng");
+  expect(mocks.get).toHaveBeenCalledWith("/admin/users/customer/detail");
+  expect(mocks.get).toHaveBeenCalledWith("/admin/users/customer/order-stats");
+  expect(mocks.get).not.toHaveBeenCalledWith("/admin/users/customer/activity");
+});
+it("blocks non-admin profile requests and offers retry on request failure", async () => {
+  mocks.role = "STAFF";
+  const view = render(<AdminLinkedAccountDialog userId="staff" onClose={vi.fn()} />);
+  expect(screen.getByRole("alert").textContent).toContain("Chỉ quản trị viên");
+  expect(mocks.get).not.toHaveBeenCalled();
+  view.unmount(); mocks.role = "ADMIN"; mocks.get.mockRejectedValueOnce(new Error("unavailable"));
+  render(<AdminLinkedAccountDialog userId="staff" onClose={vi.fn()} />);
+  expect(await screen.findByRole("button", { name: "Thử lại" })).toBeDefined();
+  expect(screen.queryByText("Đơn đã tham gia xử lý")).toBeNull();
+});

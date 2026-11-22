@@ -30,4 +30,24 @@ it('stays on the current page and keeps auth state when logout fails', async () 
   await screen.findByRole('alert'); expect(replace).not.toHaveBeenCalled(); expect(setAuthUser).not.toHaveBeenCalled();
 });
 
-it('shows the live cart quantity badge', () => { render(<Header />); expect(screen.getByLabelText('3 sản phẩm trong giỏ').textContent).toBe('3'); });
+it('shows role-appropriate header navigation for customer, staff and admin', () => {
+  account.role = 'CUSTOMER';
+  render(<Header />);
+  expect(screen.getByLabelText('3 sản phẩm trong giỏ').textContent).toBe('3');
+  expect(screen.getByRole('link', { name: /LỊCH SỬ MUA HÀNG/ })).toBeDefined();
+  cleanup();
+
+  account.role = 'STAFF';
+  render(<Header />);
+  expect(screen.getByRole('link', { name: 'TRANG CHỦ' })).toBeDefined();
+  expect(screen.getByRole('link', { name: 'THỰC ĐƠN' })).toBeDefined();
+  expect(screen.getByRole('link', { name: /GIỎ HÀNG/ })).toBeDefined();
+  expect(screen.queryByRole('link', { name: /LỊCH SỬ MUA HÀNG/ })).toBeNull();
+  cleanup();
+
+  account.role = 'ADMIN';
+  render(<Header />);
+  expect(screen.queryByRole('link', { name: /GIỎ HÀNG/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: /LỊCH SỬ MUA HÀNG/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'QUẢN TRỊ' })).toBeNull();
+});

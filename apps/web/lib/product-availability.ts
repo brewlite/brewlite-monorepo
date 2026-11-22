@@ -13,6 +13,13 @@ export function configurationIssue(product: Pick<Product, "isAvailable" | "categ
   return null;
 }
 
+export function isUninitializedCatalogProduct(product: Product): boolean {
+  return (
+    product.sizes.length > 0 &&
+    product.sizes.every((size) => !size.isAvailable || size.onHand === null)
+  );
+}
+
 export function productIssue(product: Product): string | null {
   if (!product.isAvailable) return "Món đang ngừng bán";
   if (product.category?.isActive === false) return "Danh mục đang ngừng bán";

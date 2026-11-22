@@ -2,7 +2,7 @@ import Link from "next/link";
 
 const groups = [
   { title: "", items: [["dashboard", "Tổng quan"], ["statistics", "Thống kê"]] },
-  { title: "Bán hàng", items: [["orders", "Giám sát đơn"], ["promotions", "Mã giảm giá"]] },
+  { title: "Bán hàng", items: [["orders", "Giám sát đơn"], ["cashShifts", "Quỹ tiền mặt"], ["promotions", "Mã giảm giá"]] },
   { title: "Thực đơn", items: [["products", "Sản phẩm"], ["categories", "Danh mục"], ["sizes", "Size và tồn kho"], ["toppings", "Topping"]] },
   { title: "Người dùng", items: [["users", "Tài khoản"]] },
 ];

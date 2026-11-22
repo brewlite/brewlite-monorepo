@@ -41,6 +41,18 @@ enum OrderStatus {
 enum PaymentMethod {
   WALLET
   CARD
+  CASH
+}
+
+enum OrderChannel {
+  CUSTOMER_APP
+  COUNTER_POS
+}
+
+enum CashShiftStatus {
+  OPEN
+  CLOSED
+  RECONCILED
 }
 
 enum PaymentStatus {
@@ -59,7 +71,6 @@ model User {
   id                String               @id @default(uuid())
   fullName          String
   email             String               @unique
-  phone             String?
   emailVerifiedAt   DateTime?
   isActive          Boolean              @default(true)
   authSessions      AuthSession[]
@@ -74,6 +85,10 @@ model User {
   updatedAt         DateTime             @updatedAt
 
   orders              Order[]
+  staffCreatedOrders  Order[]              @relation("StaffCreatedOrders")
+  receivedPayments    Payment[]            @relation("StaffReceivedPayments")
+  cashShifts          CashShift[]          @relation("StaffCashShifts")
+  reconciledShifts    CashShift[]          @relation("AdminReconciledShifts")
   cart                Cart?
   notifications       Notification[]
   loyaltyTransactions LoyaltyTransaction[]
@@ -204,6 +219,10 @@ model CartItem {
 model Order {
   checkoutCartSnapshot Json?
   isLegacy           Boolean              @default(true)
+  channel            OrderChannel         @default(CUSTOMER_APP)
+  createdByStaffId   String?
+  createdByStaff     User?                @relation("StaffCreatedOrders", fields: [createdByStaffId], references: [id], onDelete: SetNull)
+  guestLabel         String?
   expiresAt          DateTime?
   version            Int                  @default(0)
   promotionId        String?
@@ -236,6 +255,7 @@ model Order {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([channel, createdAt])
   @@map("orders")
 }
 
@@ -274,6 +294,12 @@ model Payment {
   attemptNumber     Int?
   providerPaymentId String?        @unique
   resolvedAt        DateTime?
+  cashShiftId       String?
+  cashShift         CashShift?     @relation(fields: [cashShiftId], references: [id], onDelete: Restrict)
+  receivedByStaffId String?
+  receivedByStaff   User?          @relation("StaffReceivedPayments", fields: [receivedByStaffId], references: [id], onDelete: SetNull)
+  cashTendered      Decimal?       @db.Decimal(10, 2)
+  changeGiven       Decimal?       @db.Decimal(10, 2)
   refund            Refund?
   events            PaymentEvent[]
   id                String         @id @default(uuid())
@@ -289,6 +315,7 @@ model Payment {
   paidAt            DateTime?
 
   @@unique([orderId, attemptNumber])
+  @@index([cashShiftId])
   @@map("payments")
 }
 
@@ -450,16 +477,45 @@ enum RefundStatus {
   UNKNOWN
 }
 model Refund {
-  id               String @id @default(uuid())
-  paymentId        String @unique
-  payment          Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  amount           Decimal @db.Decimal(10, 2)
+  id               String       @id @default(uuid())
+  paymentId        String       @unique
+  payment          Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  amount           Decimal      @db.Decimal(10, 2)
   provider         String
   status           RefundStatus
-  providerRefundId String? @unique
-  idempotencyKey   String @unique
+  providerRefundId String?      @unique
+  idempotencyKey   String       @unique
   requestedBy      String
-  createdAt        DateTime @default(now())
+  cashShiftId      String?
+  cashShift        CashShift?   @relation(fields: [cashShiftId], references: [id], onDelete: Restrict)
+  reason           String?
+  createdAt        DateTime     @default(now())
   resolvedAt       DateTime?
+
+  @@index([cashShiftId])
   @@map("refunds")
+}
+
+model CashShift {
+  id                  String          @id @default(uuid())
+  staffId             String
+  staff               User            @relation("StaffCashShifts", fields: [staffId], references: [id], onDelete: Restrict)
+  status              CashShiftStatus @default(OPEN)
+  openingFloat        Decimal         @db.Decimal(10, 2)
+  expectedCash        Decimal?        @db.Decimal(10, 2)
+  countedCash         Decimal?        @db.Decimal(10, 2)
+  variance            Decimal?        @db.Decimal(10, 2)
+  closingNote         String?
+  openedAt            DateTime        @default(now())
+  closedAt            DateTime?
+  reconciledByAdminId String?
+  reconciledByAdmin   User?           @relation("AdminReconciledShifts", fields: [reconciledByAdminId], references: [id], onDelete: SetNull)
+  reconciledAt        DateTime?
+  reconcileNote       String?
+  payments            Payment[]
+  refunds             Refund[]
+
+  @@index([staffId, status])
+  @@index([status, openedAt])
+  @@map("cash_shifts")
 }

@@ -5,7 +5,11 @@ import { getStore, sendStore } from '../services/store.service';
 vi.mock('../components/layout/site-frame', () => ({ SiteFrame: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('../components/orders/orders-view', () => ({ statusName: {} }));
 vi.mock('../services/store.service', () => ({ getStore: vi.fn(), sendStore: vi.fn() }));
-vi.mock('../services/auth.service', () => ({ authError: (error: Error) => error.message }));
+vi.mock('../services/auth.service', () => ({
+  authError: (error: Error) => error.message,
+  onSessionExpired: vi.fn(),
+  currentUser: vi.fn(async () => ({ id: 'admin-1', role: 'ADMIN' })),
+}));
 Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', ''); } });
 Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute('open'); } });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });

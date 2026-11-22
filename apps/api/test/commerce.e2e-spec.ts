@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { CommerceService } from '../src/commerce/commerce.service';
 import { Test } from '@nestjs/testing';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
@@ -15,8 +17,10 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
     let app: INestApplication;
     let db: PrismaService;
     let admin: string;
+    let adminEmail: string;
     let customer: string;
     let staff: string;
+    let staffId: string;
     let other: string;
     let customerId: string;
     let productId: string;
@@ -45,6 +49,10 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
       app.useGlobalPipes(
         new ValidationPipe({ whitelist: true, transform: true }),
       );
+      if (process.env.ADMIN_DETAILS_BROWSER === '1') {
+        process.env.FRONTEND_ORIGIN = 'http://localhost:3000,http://localhost:3100';
+        app.enableCors({ origin: ['http://localhost:3000', 'http://localhost:3100'], credentials: true });
+      }
       await app.init();
       db = app.get(PrismaService);
       async function account(role: 'ADMIN' | 'CUSTOMER' | 'STAFF') {
@@ -71,8 +79,12 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
           )[0],
         };
       }
-      admin = (await account('ADMIN')).cookie;
-      staff = (await account('STAFF')).cookie;
+      const adminAccount = await account('ADMIN');
+      admin = adminAccount.cookie;
+      adminEmail = (await db.user.findUniqueOrThrow({ where: { id: adminAccount.id } })).email;
+      const staffAccount = await account('STAFF');
+      staff = staffAccount.cookie;
+      staffId = staffAccount.id;
       const c = await account('CUSTOMER');
       customer = c.cookie;
       customerId = c.id;
@@ -124,6 +136,42 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
       await get('/admin/products', customer).expect(403);
       await get('/admin/products', staff).expect(403);
       await get('/staff/orders', customer).expect(403);
+    });
+    it('restricts safe account details and staff activity to ADMIN', async () => {
+      for (const path of [`/admin/users/${customerId}/detail`, `/admin/users/${staffId}/activity`]) {
+        await request(app.getHttpServer()).get(`/api${path}`).expect(401);
+        await get(path, customer).expect(403);
+        await get(path, staff).expect(403);
+      }
+      const profile = await get(`/admin/users/${customerId}/detail`, admin).expect(200);
+      expect(profile.body.id).toBe(customerId);
+      expect(profile.body.role).toBe('CUSTOMER');
+      expect(profile.body).not.toHaveProperty('phone');
+      expect(profile.body).toHaveProperty('createdAt');
+      for (const secret of ['passwordHash', 'emailVerification', 'authSessions', 'refreshTokenHash'])
+        expect(profile.body).not.toHaveProperty(secret);
+      await get(`/admin/users/${randomUUID()}/detail`, admin).expect(404);
+      await get('/admin/users/not-a-uuid/detail', admin).expect(400);
+      await get(`/admin/users/${customerId}/activity`, admin).expect(403);
+      const empty = await get(`/admin/users/${staffId}/activity`, admin).expect(200);
+      expect(empty.body).toEqual({ participatedOrders: 0, totalUpdates: 0, transitions: [], recentEvents: [] });
+    });
+    it('searches and paginates accounts only for ADMIN', async () => {
+      const path = '/admin/users/search?page=1&pageSize=1&role=CUSTOMER';
+      await request(app.getHttpServer()).get(`/api${path}`).expect(401);
+      await get(path, customer).expect(403);
+      await get(path, staff).expect(403);
+      const result = await get(path, admin).expect(200);
+      expect(result.body.pageSize).toBe(1);
+      expect(result.body.total).toBeGreaterThan(0);
+      expect(result.body.items).toHaveLength(1);
+      expect(result.body.items[0].role).toBe('CUSTOMER');
+      expect(result.body.items[0]).not.toHaveProperty('passwordHash');
+      const email = encodeURIComponent(result.body.items[0].email);
+      const filtered = await get(`/admin/users/search?query=${email}`, admin).expect(200);
+      expect(filtered.body.items.some((user: { id: string }) => user.id === result.body.items[0].id)).toBe(true);
+      await get('/admin/users/search?page=0', admin).expect(400);
+      await get('/admin/users/search?role=ROOT', admin).expect(400);
     });
     it('creates catalog through ADMIN APIs; initializes Size inventory explicitly', async () => {
       const category = await post('/admin/categories', admin)
@@ -289,6 +337,25 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
       const dashboard = await get('/admin/dashboard', admin).expect(200);
       expect(dashboard.body.simulatedRevenue).toBe('42000');
     });
+    it('links admin order people to safe account details and counts staff participation once', async () => {
+      const detail = await get(`/admin/orders/${orderId}`, admin).expect(200);
+      expect(detail.body.user.id).toBe(customerId);
+      expect(detail.body.user).not.toHaveProperty('passwordHash');
+      const event = detail.body.history.find((entry: { actorId: string; toStatus: string }) => entry.actorId === staffId && entry.toStatus === 'COMPLETED');
+      expect(event.actor.id).toBe(staffId);
+      expect(event.actor.role).toBe('STAFF');
+      expect(event.actor).not.toHaveProperty('passwordHash');
+      const profile = await get(`/admin/users/${event.actor.id}/detail`, admin).expect(200);
+      expect(profile.body.role).toBe('STAFF');
+      const activity = await get(`/admin/users/${staffId}/activity`, admin).expect(200);
+      expect(activity.body.participatedOrders).toBe(1);
+      expect(activity.body.totalUpdates).toBe(3);
+      expect(activity.body.recentEvents).toHaveLength(3);
+      expect(activity.body.recentEvents.every((entry: { order: { id: string } }) => entry.order.id === orderId)).toBe(true);
+      expect(activity.body.transitions).toEqual(expect.arrayContaining([
+        { status: 'PREPARING', count: 1 }, { status: 'READY', count: 1 }, { status: 'COMPLETED', count: 1 },
+      ]));
+    });
     it('two customers competing for the final SKU cannot oversell', async () => {
       await post('/cart/items', customer).send(body()).expect(201);
       await post('/cart/items', other).send(body()).expect(201);
@@ -441,5 +508,23 @@ const enabled = !!process.env.AUTH_TEST_DATABASE_URL;
       expect(inventory.onHand).toBe(10);
       expect(inventory.reserved).toBe(0);
     });
+    (process.env.ADMIN_DETAILS_BROWSER === '1' ? it : it.skip)('opens linked customer and staff profiles in real desktop/mobile UI', async () => {
+      await app.listen(0, '127.0.0.1');
+      const url = new URL(await app.getUrl());
+      // Match the frontend's localhost host so browser cookies survive transport redirection.
+      url.hostname = 'localhost';
+      const schema = new URL(process.env.AUTH_TEST_DATABASE_URL!).searchParams.get('schema');
+      if (!schema?.startsWith('brewlite_auth_test_')) throw new Error('Dedicated browser test schema required');
+      const order = await db.order.findUniqueOrThrow({ where: { id: orderId }, select: { orderCode: true } });
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(process.execPath, [path.resolve('../../tests/admin-details-browser.cjs')], {
+          env: { ...process.env, ADMIN_DETAILS_BROWSER_SETTINGS: JSON.stringify({ schema, api: url.origin, frontend: 'http://localhost:3100', admin: adminEmail, password, orderCode: order.orderCode }) },
+          stdio: 'inherit', windowsHide: true,
+        });
+        child.once('error', reject);
+        child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`Admin browser test exited ${code}`)));
+      });
+    }, 180000);
+
   },
 );

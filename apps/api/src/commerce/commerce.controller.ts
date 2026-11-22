@@ -156,6 +156,9 @@ export class StaffOrdersController {
   @Get() @Roles('STAFF', 'ADMIN') list() {
     return this.service.orders('', true, true);
   }
+  @Get('today') @Roles('STAFF', 'ADMIN') todayHistory() {
+    return this.service.staffTodayHistory();
+  }
   @Get(':id') @Roles('STAFF', 'ADMIN') detail(@Param('id') id: string) {
     return this.service.order(id);
   }

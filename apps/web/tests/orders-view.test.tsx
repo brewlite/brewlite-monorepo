@@ -111,3 +111,58 @@ it('does not offer automatic VNPay refund', async()=>{
   expect(await screen.findByText(/Chưa hỗ trợ hủy và hoàn tiền VNPay trực tuyến/)).toBeTruthy();
   expect(screen.queryByRole('button',{name:'Hủy đơn và hoàn tiền mô phỏng'})).toBeNull();
 });
+
+it('loads read-only today history tab inside staff board and filters completed vs cancelled', async () => {
+  vi.mocked(getStore).mockImplementation(async (path: string) => {
+    if (path === '/staff/orders/today') {
+      return [
+        {
+          id: 'done-1',
+          orderCode: 'BL-DONE-1',
+          channel: 'COUNTER_POS',
+          guestLabel: 'Anh Nam',
+          status: 'COMPLETED',
+          version: 3,
+          finalTotal: '55000',
+          createdAt: '2026-11-22T02:00:00Z',
+          expiresAt: null,
+          items: [{ id: 'i1', productName: 'Bạc xỉu', sizeName: 'M', quantity: 1, note: null, lineTotal: '55000', toppings: [] }],
+          payments: [{ id: 'p1', status: 'SUCCESS', method: 'CASH', amount: '55000' }],
+          history: [],
+        },
+        {
+          id: 'cancel-1',
+          orderCode: 'BL-CANCEL-1',
+          channel: 'COUNTER_POS',
+          guestLabel: 'Chị Hoa',
+          status: 'CANCELLED',
+          version: 2,
+          finalTotal: '45000',
+          createdAt: '2026-11-22T03:00:00Z',
+          expiresAt: null,
+          items: [{ id: 'i2', productName: 'Trà đào', sizeName: 'L', quantity: 1, note: null, lineTotal: '45000', toppings: [] }],
+          payments: [{ id: 'p2', status: 'SUCCESS', method: 'WALLET', amount: '45000', refund: { id: 'r1', provider: 'COUNTER_MANUAL', status: 'SUCCESS', amount: '45000', resolvedAt: '2026-11-22T03:05:00Z' } }],
+          history: [],
+        },
+      ];
+    }
+    return [];
+  });
+
+  render(<OrdersView staff />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Hôm nay' }));
+
+  expect(await screen.findByText(/BL-DONE-1/)).toBeTruthy();
+  expect(screen.getByText(/BL-CANCEL-1/)).toBeTruthy();
+  expect(screen.getByText('Đã hoàn tiền')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Duyệt và pha chế' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Hoàn tiền' })).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Hoàn tất (1)' }));
+  expect(screen.getByText(/BL-DONE-1/)).toBeTruthy();
+  expect(screen.queryByText(/BL-CANCEL-1/)).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Đã hủy (1)' }));
+  expect(screen.queryByText(/BL-DONE-1/)).toBeNull();
+  expect(screen.getByText(/BL-CANCEL-1/)).toBeTruthy();
+});

@@ -10,9 +10,11 @@ import { MAX_LINE_QUANTITY, MIN_LINE_QUANTITY, lineTotal } from "../../lib/cart-
 import { ProductImage } from "../menu/product-image";
 import { useCart } from "../cart/cart-provider";
 import { configurationIssue } from "../../lib/product-availability";
+import { useAuthUser } from "../../lib/auth-store";
 
 export function ProductDetailView({ id, editKey }: { id: string; editKey?: string }) {
   const { addLine, updateLine, lines, pendingGuest = [], busy, ready } = useCart();
+  const canUseCart = useAuthUser()?.role !== "ADMIN";
   const router = useRouter();
   const editingLine = editKey?.startsWith("guest:") ? pendingGuest.find((line) => line.key === editKey.slice(6) && line.productId === id) : editKey ? lines.find((line) => line.key === editKey && line.productId === id) : undefined;
   const [product, setProduct] = useState<ProductDetail | null>(null);
@@ -66,6 +68,7 @@ export function ProductDetailView({ id, editKey }: { id: string; editKey?: strin
     : 0;
 
   async function addToCart() {
+    if (!canUseCart) return;
     if (!Number.isInteger(quantity) || quantity < MIN_LINE_QUANTITY || quantity > MAX_LINE_QUANTITY) { setFormError("Số lượng phải là số nguyên từ 1 đến 20; vui lòng nhập lại."); return; }
     if (!product || soldOut) return;
     if (invalidToppings.length) { setFormError("Có topping không còn khả dụng. Vui lòng tự bỏ chọn hoặc chọn lại trước khi lưu."); return; }
@@ -192,9 +195,9 @@ export function ProductDetailView({ id, editKey }: { id: string; editKey?: strin
                 {invalidToppings.map((selected) => <label key={selected}><input type="checkbox" checked onChange={() => setToppingIds((ids) => ids.filter((value) => value !== selected))} />{editingLine?.toppings.find((item) => item.id === selected)?.name ?? "Topping đã chọn"} (không còn khả dụng, cần bỏ chọn)</label>)}
                 {formError && <p role="alert">{formError}</p>}
                 {editKey && !editingLine && ready !== false && <p role="alert">Món cần sửa không còn trong giỏ. Vui lòng mở lại giỏ hàng.</p>}
-                <button type="button" className="add-bag" disabled={soldOut || invalidToppings.length > 0 || busy || ready === false || (!!editKey && !editingLine)} onClick={addToCart}>
+                {canUseCart && <button type="button" className="add-bag" disabled={soldOut || invalidToppings.length > 0 || busy || ready === false || (!!editKey && !editingLine)} onClick={addToCart}>
                   {availabilityIssue ?? (editKey ? "Lưu thay đổi" : "Thêm vào giỏ hàng")}
-                </button>
+                </button>}
               </div>
             </div>
           )}

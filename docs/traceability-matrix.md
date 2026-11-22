@@ -114,7 +114,7 @@ minh kịch bản đó đã Pass.
 | FR-10 | User roles/session/ownership | guards mọi API protected | Role views | SEC-01/02: CUSTOMER/STAFF/ADMIN, IDOR | CODE guards; target RBAC còn thiếu P1/P8 |
 | FR-11 | Auth + cart + Order | me/refresh và POST /orders | Xác nhận mua→Auth→coupon | TC-03: giữ giỏ, chặn anonymous tạo order | CODE PurchaseFlow; orders TARGET P5 |
 | FR-12 | Promotion + OrderReservation | /cart/calculate, /orders | Coupon | TC-06/INT-07: cap50%, quota held, rollback | CODE validator một phần; P4/P5 |
-| FR-13 | User.reservedPoints, reservation/ledger | quote/orders/payments | Dùng điểm | TC-07/INT-06:100đ, cap20%, balance/held | CODE1000đ lệch; P4/P5/P6 |
+| FR-13 | User.reservedPoints, reservation/ledger | quote/orders/payments | Dùng điểm | TC-07/INT-06:100đ, cap50%, balance/held | CODE1000đ lệch; P4/P5/P6 |
 | FR-14 | Decimal/snapshots | quote/orders | Total | TC-05/06/07:100000-10000-10000=80000 | CODE Number hiện tại; TARGET P4 |
 | FR-15 | Size.onHand/reserved | quote/orders | Availability/hết hàng | TC-08/INT-05: aggregate same Size, NULL block | Product stock CODE; SKU TARGET P3/P5 |
 | FR-16 | Order/OrderItem/OrderReservation | POST /orders | Pending order | TC-09/INT-05: atomic reserve, expires10m | DB/SEED; TARGET P5 |

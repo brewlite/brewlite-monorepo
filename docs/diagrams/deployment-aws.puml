@@ -1,46 +1,95 @@
 @startuml
 !pragma layout smetana
 !theme plain
-title BrewLite — AWS EC2 và pipeline CD đã chuẩn bị
-node "Thiết bị khách" {
- artifact "Browser / Next.js PWA" as Browser
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam nodeBackgroundColor #F8FBFF
+skinparam nodeBorderColor #35567C
+skinparam cloudBackgroundColor #F6F9F2
+skinparam cloudBorderColor #4E7A3E
+skinparam databaseBackgroundColor #F3FAF4
+skinparam databaseBorderColor #2E7D32
+skinparam artifactBackgroundColor #FFFDF2
+skinparam artifactBorderColor #B59F5B
+
+title BrewLite — Sơ đồ Triển Khai Hệ Thống (Assignment 2 - Task 3.2)
+
+node "Thiết bị Người dùng\n(Khách hàng / Nhân viên / Admin)" as Client {
+  artifact "Trình duyệt Web / Next.js PWA" as Browser
 }
-cloud Internet
-node "AWS EC2 Ubuntu 24.04\nap-southeast-2 · 3.107.247.123" as EC2 {
- node "Docker Compose: brewlite" {
-  node "Caddy :80/:443\nTLS + filtered access log" as Caddy
-  node "Next.js web :3000\nstandalone" as Web
-  node "NestJS api :3001\nJWT / RBAC / mock payment" as API
-  database "PostgreSQL 16 :5432\nkhông public port" as DB
-  artifact "postgres_data\npersistent volume" as Volume
-  artifact "uploads/\npersistent bind mount" as Upload
- }
- artifact "deploy/.env.production\nprivate runtime secrets" as Secrets
+
+cloud "Internet\n(HTTPS / TLS 1.3)" as Net
+
+package "Môi trường Production — AWS EC2 Ubuntu 24.04 (ap-southeast-2)" {
+  node "AWS EC2 Host\n(brewlite-sgu.duckdns.org)" as EC2 {
+    frame "Docker Compose: brewlite · Network: internal (bridge)" {
+      node "Caddy 2 (caddy:2-alpine)\nPublic Ports :80, :443\nAuto HTTPS (Let's Encrypt)\nFiltered JSON Access Log" as Caddy
+      node "Next.js Web Container\n(brewlite-web · internal :3000)\nStandalone SSR / PWA" as Web
+      node "NestJS API Container\n(brewlite-api · internal :3001)\nJWT / RBAC / Commerce / POS / VNPay\nHealthcheck: GET /api/health (15s)" as API
+      database "PostgreSQL 16-alpine\n(internal :5432 · không mở public port)\nHealthcheck: pg_isready (10s)" as DB
+
+      artifact "Docker Volume:\npostgres_data\n(/var/lib/postgresql/data)" as PgVol
+      artifact "Docker Volumes:\ncaddy_data / caddy_config\n(TLS certs)" as CaddyVol
+      artifact "Host Bind Mount:\n./uploads -> /app/uploads\n(ảnh sản phẩm)" as Uploads
+    }
+
+    artifact "deploy/.env.production\n(Runtime Secrets — không commit Git:\nDATABASE_URL, JWT_SECRET,\nPOSTGRES_*, SMTP_*, VNPAY_*)" as Secrets
+    artifact "Docker json-file Logs\n(max-size 10m, max-file 3)" as Logs
+  }
 }
-node "GitHub Actions\nCD prepared, chưa chạy nghiệm thu" as CI
-cloud "GHCR\nimages tagged commit SHA\nprepared, chưa publish" as Registry
-cloud "Gmail SMTP / VNPay Sandbox\nextensions" as External
-Browser --> Internet : HTTPS
-Internet --> Caddy : HTTPS :443
-Caddy --> Web : internal HTTP :3000
-Caddy --> API : /api/* HTTP :3001
-API --> DB : internal PostgreSQL
-DB --> Volume
-API --> Upload
-Secrets ..> API
-CI --> Registry : build + push linux/amd64
-CI --> EC2 : verified SSH :22\nproduction environment approval
-Registry --> API : image pull
-Registry --> Web : image pull
-API --> External : TLS / HTTPS
+
+package "CI / CD & Container Registry Boundary" {
+  node "GitHub Actions\n• ci.yml: lint, unit tests, build,\n  PostgreSQL 16 integration tests\n• cd.yml: build linux/amd64,\n  production approval, SSH release.sh" as CI
+  cloud "GitHub Container Registry (GHCR)\nghcr.io/<repo>/web:<sha>\nghcr.io/<repo>/api:<sha>" as Registry
+}
+
+package "Môi trường Phát triển (Local Dev — Tách biệt Production)" {
+  node "Máy phát triển (Windows / Linux)\n• Next.js Dev :3000\n• NestJS Watch :3001\n• Docker PostgreSQL :5433 (brewlite_db)\n• Test DB riêng (brewlite_*_test_*)" as LocalDev
+}
+
+cloud "Dịch vụ Bên ngoài (External)" as Ext {
+  node "Gmail SMTP\n(TLS :587 — Gửi OTP đăng ký)" as SMTP
+  node "VNPay Sandbox 2.1.0\n(HTTPS — Redirect, IPN, QueryDr)" as VNPay
+}
+
+' Luồng người dùng -> Production
+Browser --> Net : HTTPS :443
+Net --> Caddy : HTTPS :443\n(TLS termination + zstd/gzip)
+Caddy --> Web : HTTP nội bộ :3000\n(/*)
+Caddy --> API : HTTP nội bộ :3001\n(/api/*)
+API --> DB : PostgreSQL nội bộ :5432\n(Prisma ORM)
+DB --> PgVol : Lưu trữ bền vững
+Caddy --> CaddyVol : Lưu chứng chỉ TLS
+API --> Uploads : Đọc / ghi ảnh
+Secrets ..> API : env_file (private)
+Secrets ..> DB : POSTGRES_*
+API ..> Logs : structured logs\n(vnpay.ipn, querydr, errors)
+Caddy ..> Logs : filtered access log\n(xóa query/cookie/header)
+
+' Luồng External
+API --> SMTP : STARTTLS :587
+API --> VNPay : HTTPS (QueryDr / Payment URL)
+VNPay --> Caddy : HTTPS GET /api/payments/vnpay/ipn\n(HMAC-SHA512 verified)
+
+' Luồng CI/CD
+LocalDev ..> CI : Git push / PR / Tag v*
+CI --> Registry : Build & push linux/amd64 images
+CI --> EC2 : Verified SSH :22\n(StrictHostKeyChecking=yes)\nbackup + migration gate + smoke.mjs
+Registry --> Web : docker compose pull
+Registry --> API : docker compose pull
+
 note bottom of CI
-Quality gates -> images -> registry -> approval -> backup
--> migration gate -> deploy -> HTTPS smoke.
-Rollback image only when schema remains compatible.
+  Quy trình CD (cd.yml + deploy/release.sh):
+  1) CI Quality Gates (lint/unit/build/integration DB)
+  2) Build & push image gắn tag commit SHA
+  3) Phê duyệt môi trường production
+  4) Backup DB → kiểm tra migration → compose up
+  5) HTTPS Smoke Test (/api/health, /api/products)
 end note
-note bottom of EC2
-GET /api/health, /api/products.
-Local và CI dùng database tách biệt production.
-UFW/SG/NACL chưa được sơ đồ này chứng nhận.
+
+note bottom of LocalDev
+  Tách biệt ranh giới môi trường:
+  Local Dev & CI chạy PostgreSQL riêng biệt,
+  tuyệt đối không kết nối hay ghi đè Production DB.
 end note
 @enduml

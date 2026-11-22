@@ -1,0 +1,33 @@
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { AdminOrderDetailContent } from "../components/admin/order-detail-dialog";
+import type { Order } from "../services/store.service";
+const get = vi.hoisted(() => vi.fn());
+vi.mock("../services/store.service", () => ({ getStore: get }));
+beforeEach(() => { get.mockReset(); });
+afterEach(cleanup);
+const order = (id: string): Order => ({ id, orderCode: `BL-${id}`, status: "PAID", version: 1, finalTotal: "35000", createdAt: "2026-11-13T00:00:00Z", expiresAt: null, items: [{ id: `item-${id}`, productName: `Sản phẩm ${id}`, sizeName: "M", quantity: 1, note: null, lineTotal: "35000", toppings: [] }], payments: [], history: [] });
+it("never shows a previously selected order while the next order is loading", async () => {
+  let finish!: (value: Order) => void;
+  get.mockResolvedValueOnce(order("A")).mockImplementationOnce(() => new Promise<Order>((resolve) => { finish = resolve; }));
+  const close = vi.fn();
+  const view = render(<AdminOrderDetailContent orderId="A" onClose={close} />);
+  await screen.findByText("Sản phẩm A");
+  view.rerender(<AdminOrderDetailContent orderId="B" onClose={close} />);
+  expect(screen.queryByText("Sản phẩm A")).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("Đang tải");
+  await act(async () => { finish(order("B")); });
+  expect(screen.getByText("Sản phẩm B")).toBeDefined();
+  expect(screen.queryByText("Sản phẩm A")).toBeNull();
+});
+it("retries failure without substituting a summary or example order", async () => {
+  get.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(order("B"));
+  const back = vi.fn();
+  render(<AdminOrderDetailContent orderId="B" onClose={vi.fn()} onBack={back} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Thử lại" }));
+  await screen.findByText("Sản phẩm B");
+  expect(screen.getByRole("heading", { name: "Lịch sử trạng thái" })).toBeDefined();
+  expect(screen.queryByText("Tóm tắt đơn hàng")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Quay lại" }));
+  expect(back).toHaveBeenCalledTimes(1);
+});

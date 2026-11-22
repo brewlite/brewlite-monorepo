@@ -10,9 +10,11 @@ function scalar(value: unknown): string {
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { OrderStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CommerceService,
@@ -30,21 +32,187 @@ export class StoreAdminService {
     private readonly inventoryService: InventoryService,
   ) {}
   async dashboard() {
-    const where = {
-      isLegacy: false,
-      status: { in: ['PAID', 'PREPARING', 'READY', 'COMPLETED'] as const },
-    };
-    const totals = await this.db.order.aggregate({
-      where: { ...where, status: { in: [...where.status.in] } },
-      _sum: { finalTotal: true },
-      _count: true,
-    });
+    const paidStatuses: OrderStatus[] = [
+      OrderStatus.PAID,
+      OrderStatus.PREPARING,
+      OrderStatus.READY,
+      OrderStatus.COMPLETED,
+    ];
+    const [totals, products, pendingShifts] = await Promise.all([
+      this.db.order.aggregate({
+        where: { isLegacy: false, status: { in: paidStatuses } },
+        _sum: { finalTotal: true },
+        _count: true,
+      }),
+      this.db.product.count(),
+      this.db.cashShift.aggregate({
+        where: { status: 'CLOSED' },
+        _sum: { countedCash: true },
+        _count: true,
+      }),
+    ]);
     return {
       paidOrders: totals._count,
       simulatedRevenue: totals._sum.finalTotal?.toFixed(0) ?? '0',
-      products: await this.db.product.count(),
+      products,
+      pendingCashShifts: pendingShifts._count,
+      pendingCashTotal: pendingShifts._sum.countedCash?.toFixed(0) ?? '0',
       label:
         'Doanh thu thanh toán mô phỏng; không phải tiền thật. Không bao gồm đơn legacy/demo.',
+    };
+  }
+
+  async statistics() {
+    const paidStatuses: OrderStatus[] = [
+      OrderStatus.PAID,
+      OrderStatus.PREPARING,
+      OrderStatus.READY,
+      OrderStatus.COMPLETED,
+    ];
+    const [paidOrders, statusGroups, topItems, closedShifts, reconciledShifts] =
+      await Promise.all([
+        this.db.order.findMany({
+          where: { isLegacy: false, status: { in: paidStatuses } },
+          select: {
+            channel: true,
+            finalTotal: true,
+            discountAmount: true,
+            pointsUsed: true,
+            pointsDiscount: true,
+            payments: {
+              where: { status: 'SUCCESS' },
+              select: { method: true },
+              take: 1,
+            },
+          },
+        }),
+        this.db.order.groupBy({
+          by: ['status'],
+          where: { isLegacy: false },
+          _count: { _all: true },
+        }),
+        this.db.orderItem.groupBy({
+          by: ['productId', 'productName'],
+          where: {
+            order: { isLegacy: false, status: OrderStatus.COMPLETED },
+          },
+          _sum: { quantity: true, lineTotal: true },
+          orderBy: [{ _sum: { quantity: 'desc' } }, { _sum: { lineTotal: 'desc' } }],
+          take: 8,
+        }),
+        this.db.cashShift.aggregate({
+          where: { status: 'CLOSED' },
+          _sum: { countedCash: true, variance: true },
+          _count: true,
+        }),
+        this.db.cashShift.aggregate({
+          where: { status: 'RECONCILED' },
+          _sum: { countedCash: true, variance: true },
+          _count: true,
+        }),
+      ]);
+
+    const D = Prisma.Decimal;
+    let totalRevenue = new D(0);
+    let counterCashRevenue = new D(0);
+    let counterCashOrders = 0;
+    let counterQrRevenue = new D(0);
+    let counterQrOrders = 0;
+    let onlineRevenue = new D(0);
+    let onlineOrders = 0;
+    let couponOrders = 0;
+    let couponDiscountTotal = new D(0);
+    let pointsOrders = 0;
+    let pointsUsedTotal = 0;
+    let pointsDiscountTotal = new D(0);
+
+    for (const order of paidOrders) {
+      totalRevenue = totalRevenue.plus(order.finalTotal);
+      if (order.channel === 'COUNTER_POS') {
+        const method = order.payments[0]?.method;
+        if (method === 'CASH') {
+          counterCashRevenue = counterCashRevenue.plus(order.finalTotal);
+          counterCashOrders += 1;
+        } else {
+          counterQrRevenue = counterQrRevenue.plus(order.finalTotal);
+          counterQrOrders += 1;
+        }
+      } else {
+        onlineRevenue = onlineRevenue.plus(order.finalTotal);
+        onlineOrders += 1;
+      }
+      if (order.discountAmount.gt(0)) {
+        couponOrders += 1;
+        couponDiscountTotal = couponDiscountTotal.plus(order.discountAmount);
+      }
+      if (order.pointsUsed > 0) {
+        pointsOrders += 1;
+        pointsUsedTotal += order.pointsUsed;
+        pointsDiscountTotal = pointsDiscountTotal.plus(order.pointsDiscount);
+      }
+    }
+
+    const statusCounts: Record<string, number> = {
+      PENDING: 0,
+      PAYMENT_FAILED: 0,
+      PAID: 0,
+      PREPARING: 0,
+      READY: 0,
+      COMPLETED: 0,
+      CANCELLED: 0,
+    };
+    let totalOrders = 0;
+    for (const group of statusGroups) {
+      statusCounts[group.status] = group._count._all;
+      totalOrders += group._count._all;
+    }
+
+    const paidCount = paidOrders.length;
+    const averageOrderValue =
+      paidCount > 0 ? totalRevenue.div(paidCount).floor().toFixed(0) : '0';
+
+    const closedVar = closedShifts._sum.variance ?? new D(0);
+    const reconciledVar = reconciledShifts._sum.variance ?? new D(0);
+
+    return {
+      revenue: {
+        total: totalRevenue.toFixed(0),
+        paidOrders: paidCount,
+        averageOrderValue,
+        counterCash: {
+          revenue: counterCashRevenue.toFixed(0),
+          orders: counterCashOrders,
+        },
+        counterQr: {
+          revenue: counterQrRevenue.toFixed(0),
+          orders: counterQrOrders,
+        },
+        online: {
+          revenue: onlineRevenue.toFixed(0),
+          orders: onlineOrders,
+        },
+      },
+      statusCounts,
+      totalOrders,
+      discounts: {
+        couponOrders,
+        couponDiscountTotal: couponDiscountTotal.toFixed(0),
+        pointsOrders,
+        pointsUsedTotal,
+        pointsDiscountTotal: pointsDiscountTotal.toFixed(0),
+      },
+      topProducts: topItems.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item._sum.quantity ?? 0,
+        revenue: item._sum.lineTotal?.toFixed(0) ?? '0',
+      })),
+      cashSummary: {
+        pendingShiftCount: closedShifts._count,
+        pendingCashTotal: closedShifts._sum.countedCash?.toFixed(0) ?? '0',
+        reconciledCashTotal: reconciledShifts._sum.countedCash?.toFixed(0) ?? '0',
+        totalVariance: closedVar.plus(reconciledVar).toFixed(0),
+      },
     };
   }
   async list(kind: string) {
@@ -71,6 +239,7 @@ export class StoreAdminService {
           select: {
             id: true,
             fullName: true,
+            createdAt: true,
             email: true,
             role: true,
             isActive: true,
@@ -83,6 +252,136 @@ export class StoreAdminService {
       default:
         throw new NotFoundException();
     }
+  }
+  async users(page: number, pageSize: number, query = '', role = '') {
+    if (typeof query !== 'string' || typeof role !== 'string')
+      throw new BadRequestException('Bộ lọc tài khoản không hợp lệ.');
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1)
+      throw new BadRequestException('Phân trang không hợp lệ.');
+    if (role && !Object.values(UserRole).includes(role as UserRole))
+      throw new BadRequestException('Vai trò không hợp lệ.');
+    const safePageSize = Math.min(pageSize, 100);
+    const skip = (page - 1) * safePageSize;
+    if (!Number.isSafeInteger(skip) || skip > 2147483647)
+      throw new BadRequestException('Phân trang không hợp lệ.');
+    const search = query.trim();
+    const where: Prisma.UserWhereInput = {
+      ...(role ? { role: role as UserRole } : {}),
+      ...(search ? { OR: [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ] } : {}),
+    };
+    const [total, items] = await this.db.$transaction([
+      this.db.user.count({ where }),
+      this.db.user.findMany({ where, select: {
+        id: true, fullName: true, createdAt: true, email: true, role: true,
+        isActive: true, emailVerifiedAt: true, loyaltyPoints: true,
+      }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip, take: safePageSize }),
+    ]);
+    return { items, total, page, pageSize: safePageSize, totalPages: Math.ceil(total / safePageSize) };
+  }
+  async userDetail(userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, fullName: true, email: true, role: true,
+        isActive: true, emailVerifiedAt: true, createdAt: true, loyaltyPoints: true },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy tài khoản.');
+    return user;
+  }
+  async staffActivity(userId: string) {
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (!user) throw new NotFoundException('Không tìm thấy tài khoản.');
+    if (user.role !== UserRole.STAFF && user.role !== UserRole.ADMIN)
+      throw new ForbiddenException('Tài khoản không phải nhân viên hoặc quản trị viên.');
+    const where = { actorId: userId, order: { isLegacy: false } };
+    const [participatedOrders, groups, recentEvents] = await Promise.all([
+      this.db.order.count({ where: { isLegacy: false, history: { some: { actorId: userId } } } }),
+      this.db.orderStatusHistory.groupBy({ by: ['toStatus'], where, _count: { _all: true } }),
+      this.db.orderStatusHistory.findMany({ where,
+        select: { id: true, fromStatus: true, toStatus: true, createdAt: true,
+          order: { select: { id: true, orderCode: true, status: true } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 20 }),
+    ]);
+    return { participatedOrders, totalUpdates: groups.reduce((sum, group) => sum + group._count._all, 0),
+      transitions: groups.map((group) => ({ status: group.toStatus, count: group._count._all })), recentEvents };
+  }
+  async orderStats(userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy tài khoản.');
+    if (user.role !== UserRole.CUSTOMER)
+      throw new ForbiddenException(
+        'Chỉ tài khoản CUSTOMER có thống kê đơn hàng.',
+      );
+
+    const grouped = await this.db.order.groupBy({
+      by: ['status'],
+      where: { userId, isLegacy: false },
+      _count: { _all: true },
+    });
+    let totalOrders = 0;
+    let completedOrders = 0;
+    let cancelledOrders = 0;
+    for (const group of grouped) {
+      const count = group._count._all;
+      totalOrders += count;
+      if (group.status === OrderStatus.COMPLETED) completedOrders = count;
+      if (group.status === OrderStatus.CANCELLED) cancelledOrders = count;
+    }
+    return { totalOrders, completedOrders, cancelledOrders };
+  }
+  async recentOrders(
+    userId: string,
+    page: number,
+    pageSize: number,
+    status?: OrderStatus,
+  ) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy tài khoản.');
+    if (user.role !== UserRole.CUSTOMER)
+      throw new ForbiddenException(
+        'Chỉ tài khoản CUSTOMER có danh sách đơn hàng.',
+      );
+    if (page < 1 || pageSize < 1)
+      throw new BadRequestException('Phân trang không hợp lệ.');
+    if (status && !Object.values(OrderStatus).includes(status))
+      throw new BadRequestException('Trạng thái đơn không hợp lệ.');
+    const safePageSize = Math.min(pageSize, 50);
+    const where = {
+      userId,
+      isLegacy: false,
+      ...(status ? { status } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.db.order.count({ where }),
+      this.db.order.findMany({
+        where,
+        select: {
+          id: true,
+          orderCode: true,
+          status: true,
+          finalTotal: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * safePageSize,
+        take: safePageSize,
+      }),
+    ]);
+    return {
+      items,
+      page,
+      pageSize: safePageSize,
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+    };
   }
   async save(kind: string, body: unknown, id?: string, actorId?: string) {
     const b = record(body);
@@ -118,6 +417,12 @@ export class StoreAdminService {
           },
           select: { id: true, role: true, isActive: true },
         });
+        if (result.role !== old.role || result.isActive !== old.isActive) {
+          await tx.authSession.updateMany({
+            where: { userId: id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        }
         await tx.idempotencyRecord.create({
           data: {
             actorId: actorId!,

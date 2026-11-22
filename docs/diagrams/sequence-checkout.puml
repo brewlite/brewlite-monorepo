@@ -1,64 +1,110 @@
 @startuml
 !theme plain
-title BrewLite — Checkout và thanh toán mô phỏng
-actor Customer
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+skinparam participantBackgroundColor #F4FAFF
+skinparam participantBorderColor #35567C
+skinparam databaseBackgroundColor #F3FAF4
+skinparam databaseBorderColor #2E7D32
+skinparam noteBackgroundColor #FFFDF2
+skinparam noteBorderColor #B59F5B
+
+title BrewLite — Sơ đồ Tuần Tự: Đặt Hàng và Thanh Toán (Assignment 2 - Task 2.2)
+
+actor "Khách hàng\n(Customer)" as Customer
 participant "Next.js UI" as UI
 participant "NestJS API" as API
-database PostgreSQL as DB
-participant "Mock Payment Service\nBackend adapter" as Pay
-Customer -> UI: Xác nhận mua
-UI -> API: GET /api/auth/me (HttpOnly cookie)
-API -> API: JWT, active/verified, CUSTOMER
-UI -> API: POST /api/cart/calculate\ncoupon, points, items
-API -> DB: Đọc giá, Size.available, quota, điểm
-API --> UI: Quote + fingerprint
-UI -> API: POST /api/orders\nCart.version + fingerprint + Idempotency-Key
-API -> DB: BEGIN SERIALIZABLE; kiểm tra key/version
-API -> DB: Reprice + CAS giữ tồn/quota/điểm
-alt Sai cấu hình / thiếu tồn / giá đổi
-  API -> DB: ROLLBACK
-  API --> UI: 4xx; không mất giỏ
-else Hợp lệ
-  API -> DB: Order PENDING + snapshots + HELD + history
-  API -> DB: COMMIT
-  API --> UI: Order ID, code, expiresAt
-end
-UI -> API: POST /api/payments {orderId, method}\nIdempotency-Key
-API -> DB: Khóa order; check owner, TTL, attempts
-API -> Pay: Chọn outcome ở Backend
-alt SUCCESS đã xác minh trong TTL
-  Pay -> API: SUCCESS
-  API -> DB: Transaction: Payment SUCCESS, Order PAID, consume
-  API -> DB: EARN unique(orderId,type), event unique, dọn giỏ bằng CAS
-else FAILED
-  Pay -> API: FAILED
-  API -> DB: Payment FAILED; Order PAYMENT_FAILED; giữ giỏ/HELD
-else UNKNOWN
-  Pay -> API: UNKNOWN
-  API -> DB: Giữ unresolved; không giả PAID/FAILED
-end
-API --> UI: Kết quả có thẩm quyền
-UI --> Customer: Mã đơn / thất bại / đang xác minh
-opt Client retry cùng Idempotency-Key
-  UI -> API: Cùng payload + key
-  API -> DB: Đọc idempotency record
-  API --> UI: Cùng kết quả; không tạo attempt/đơn hai lần
-end
-note over API,DB
-VNPay là adapter mở rộng: Return không settlement.
-Chỉ chữ ký/merchant/amount/ref hợp lệ mới xét settlement;
-success quá hạn đưa REQUIRES_REVIEW, không consume tồn.
+database "PostgreSQL\n(Database)" as DB
+participant "Payment Service\n(Mock / VNPay Sandbox)" as Pay
+
+== 1. Xác thực phiên & Kiểm tra quyền ==
+Customer -> UI: Bấm "Xác nhận mua" trong Giỏ hàng
+UI -> API: GET /api/auth/me (HttpOnly JWT Cookie)
+API -> DB: Kiểm tra AuthSession, User.isActive, emailVerifiedAt
+API --> UI: 200 { user (role=CUSTOMER, loyaltyPoints) }
+note right of API
+  Guards: OriginGuard + JwtAuthGuard + RolesGuard.
+  Nếu 401: UI mở đăng nhập/OTP hoặc refresh token rotation.
 end note
-opt Hủy PAID trước pha chế (mock only)
-  UI -> API: POST /api/orders/:id/cancel\nexpectedVersion + Idempotency-Key
-  API -> DB: BEGIN; lock Order + User; validate ledger/provider/version
-  alt Hợp lệ và chưa PREPARING
-    API -> DB: Restore stock/coupon; REFUND + EARN_REVERSAL
-    API -> DB: Refund MOCK SUCCESS; Order CANCELLED; COMMIT
-    API --> UI: Refund xác nhận; Payment gốc SUCCESS
-  else VNPay / điểm đã tiêu / stale version
+
+== 2. Báo giá chính thức (không giữ tồn) ==
+Customer -> UI: Nhập mã giảm giá & điểm thưởng (tùy chọn)
+UI -> API: POST /api/cart/calculate { items, couponCode, pointsUsed }
+API -> DB: Đọc Product/Size/Topping, Size.(onHand - reserved),\nPromotion quota, User.(loyaltyPoints - reservedPoints)
+API --> UI: 200 { subtotal, discountAmount, pointsDiscount,\nfinalTotal, quoteFingerprint }
+
+== 3. Tạo đơn hàng PENDING & Giữ tài nguyên nguyên tử ==
+Customer -> UI: Xác nhận tạo đơn
+UI -> API: POST /api/orders\nHeaders: Idempotency-Key\nBody: { cartVersion, couponCode, pointsUsed, quoteFingerprint }
+API -> DB: BEGIN ISOLATION LEVEL SERIALIZABLE
+API -> DB: Kiểm tra IdempotencyRecord(actorId, 'order.create', key) & Cart.version
+API -> DB: Định giá lại bằng Decimal + CAS giữ tồn (Size.reserved += qty),\ngiữ Promotion.reservedCount, giữ User.reservedPoints
+alt Cấu hình sai / Thiếu tồn / Stale Cart.version / Giá thay đổi
+  API -> DB: ROLLBACK
+  API --> UI: 400 / 409 { code, message } (giỏ hàng giữ nguyên)
+  UI --> Customer: Hiển thị lỗi & hướng dẫn đồng bộ lại giỏ
+else Hợp lệ
+  API -> DB: INSERT Order(PENDING, expiresAt=+10m) + OrderItem/Topping snapshots\n+ OrderReservation(HELD) + OrderStatusHistory + IdempotencyRecord
+  API -> DB: COMMIT
+  API --> UI: 201 { id, orderCode, finalTotal, expiresAt, version }
+  UI --> Customer: Chuyển tới trang chi tiết đơn / chọn thanh toán
+end
+
+== 4. Thực hiện thanh toán & Xác minh kết quả ==
+Customer -> UI: Chọn Ví/Thẻ mô phỏng hoặc VNPay Sandbox
+UI -> API: POST /api/orders/:id/payments (hoặc POST /api/payments)\nHeaders: Idempotency-Key · Body: { method }
+API -> DB: BEGIN; SELECT Order FOR UPDATE\nKiểm tra owner, TTL <= 10m, attempts < 3, không có attempt PENDING/UNKNOWN
+API -> DB: INSERT Payment(PENDING, attemptNumber, idempotencyKey) & COMMIT
+API -> Pay: Khởi tạo giao dịch\n(Mock Backend outcome HOẶC ký HMAC-SHA512 tạo VNPay paymentUrl)
+
+alt SUCCESS đã xác minh trong TTL (Mock / VNPay IPN / Return đã ký / QueryDr)
+  Pay --> API: Kết quả SUCCESS hợp lệ (chữ ký, TmnCode, amount, TxnRef khớp)
+  API -> DB: BEGIN; khóa Order + Payment
+  API -> DB: INSERT PaymentEvent(providerEventId unique, PROCESSED)
+  API -> DB: UPDATE Payment(SUCCESS, paidAt) & Order(PAID, version+1)
+  API -> DB: UPDATE OrderReservation(CONSUMED); trừ Size.onHand & reserved;\ncập nhật Promotion.usedCount; ghi REDEEM & EARN (unique(orderId,type))
+  API -> DB: Dọn Cart theo CAS version + INSERT Notification(PAYMENT_SUCCESS)
+  API -> DB: COMMIT
+  API --> UI: 200 { status: SUCCESS, order: PAID }
+  UI --> Customer: Thông báo thanh toán thành công, hiển thị mã đơn & lịch sử
+else FAILED đã xác minh (Mock FAILED / VNPay mã hủy 24, 51, ...)
+  Pay --> API: Kết quả FAILED
+  API -> DB: UPDATE Payment(FAILED), Order(PAYMENT_FAILED)\n(giữ nguyên Cart & OrderReservation HELD trong TTL)
+  API --> UI: 200 { status: FAILED, order: PAYMENT_FAILED }
+  UI --> Customer: Báo thất bại → cho phép thử lại (<= 3 lần) hoặc hủy đơn
+else UNKNOWN / Timeout / Mạng lỗi
+  Pay --> API: Timeout / Chưa xác định
+  API -> DB: UPDATE Payment(UNKNOWN); giữ Order unresolved (chặn retry/hủy mù)
+  API --> UI: 200 { status: UNKNOWN }
+  UI --> Customer: Báo đang chờ xác minh → hỗ trợ bấm đối soát (POST /api/payments/:id/reconcile)
+end
+
+opt Client gửi lại cùng Idempotency-Key (Retry an toàn)
+  UI -> API: Request lặp với cùng Idempotency-Key
+  API -> DB: Tra cứu IdempotencyRecord (so sánh requestHash)
+  API --> UI: Trả kết quả cũ (cùng payload) hoặc 409 IDEMPOTENCY_KEY_REUSED (khác payload)
+end
+
+opt Hủy đơn PAID trước khi pha chế (Mock Wallet/Card)
+  Customer -> UI: Bấm "Hủy đơn"
+  UI -> API: POST /api/orders/:id/cancel\nHeaders: Idempotency-Key · Body: { expectedVersion }
+  API -> DB: BEGIN; khóa Order + User; kiểm tra status=PAID, version, provider, điểm
+  alt Đủ điều kiện (Mock & điểm thưởng chưa bị tiêu)
+    API -> DB: Hoàn Size.onHand, Promotion.usedCount; ghi REFUND + EARN_REVERSAL;\nINSERT Refund(SUCCESS); UPDATE Order(CANCELLED) (Payment gốc vẫn SUCCESS)
+    API -> DB: COMMIT
+    API --> UI: 200 { order: CANCELLED, refund: SUCCESS }
+    UI --> Customer: Xác nhận đã hủy đơn & hoàn tiền
+  else VNPay / đã PREPARING / điểm đã tiêu / sai version
     API -> DB: ROLLBACK
-    API --> UI: 409 + lý do; không giả hoàn tiền
+    API --> UI: 409 { code, message } (không giả lập hoàn tiền)
   end
 end
+
+note over UI,Pay
+  Mở rộng đặt thay tại quầy (COUNTER_POS): STAFF dùng chung Thực đơn (/menu) & Giỏ hàng (/cart),
+  không áp dụng mã giảm giá hay điểm thưởng → hộp thoại Thanh toán tại quầy gọi
+  POST /api/staff/pos/orders + POST /api/staff/pos/orders/:id/payments (Tiền mặt gắn CashShift OPEN
+  hoặc Chuyển khoản QR nhân viên kiểm tra & xác nhận) → Order PAID vào màn hình Đơn cần phục vụ (/staff/orders).
+end note
 @enduml

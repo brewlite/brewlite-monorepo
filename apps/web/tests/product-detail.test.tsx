@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SiteFrame } from "../components/layout/site-frame";
 import { ProductDetailView } from "../components/product/product-detail";
 import { makeProduct } from "./product-fixture";
+import type { AuthUser } from "../services/auth.service";
+import * as storeService from "../services/store.service";
+
+const authState = vi.hoisted(() => ({ user: null as AuthUser | null }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/products/test" }));
-vi.mock("../lib/auth-store", () => ({ useAuthUser: () => null, useAuthStatus: () => ({ ready: true, error: null }), refreshAuth: vi.fn() }));
+vi.mock("../lib/auth-store", () => ({ useAuthUser: () => authState.user, useAuthStatus: () => ({ ready: true, error: null }), refreshAuth: vi.fn() }));
 
 Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
 Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
@@ -14,6 +18,10 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  authState.user = null;
+  localStorage.clear();
+  sessionStorage.clear();
 });
 
 const detail = {
@@ -31,6 +39,29 @@ const detail = {
 };
 
 describe("product detail", () => {
+  it.each([undefined, "existing-cart-line"])("does not expose an add/save cart action for ADMIN (editKey=%s)", async (editKey) => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:3001");
+    authState.user = { id: "admin-fixture", role: "ADMIN", fullName: "Admin", email: "admin@example.invalid", emailVerifiedAt: "2026-01-01T00:00:00Z", loyaltyPoints: 0 };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => detail }));
+    const { container } = render(<SiteFrame><ProductDetailView id={detail.id} editKey={editKey} /></SiteFrame>);
+    await screen.findByRole("heading", { level: 1, name: detail.name });
+    fireEvent.click(screen.getByRole("button", { name: /M ·/ }));
+    expect(container.querySelector(".add-bag")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Thêm vào giỏ hàng" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lưu thay đổi" })).toBeNull();
+  });
+
+  it.each([null, "CUSTOMER", "STAFF"] as const)("retains the add-to-cart action for guest/customer/staff (%s)", async (role) => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:3001");
+    authState.user = role ? { id: `fixture-${role}`, role, fullName: role, email: "fixture@example.invalid", emailVerifiedAt: "2026-01-01T00:00:00Z", loyaltyPoints: 0 } : null;
+    vi.spyOn(storeService, "getStore").mockResolvedValue({ version: 0, items: [] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => detail }));
+    render(<SiteFrame><ProductDetailView id={detail.id} /></SiteFrame>);
+    await screen.findByRole("heading", { level: 1, name: detail.name });
+    fireEvent.click(screen.getByRole("button", { name: /M ·/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Thêm vào giỏ hàng" }).hasAttribute("disabled")).toBe(false));
+  });
+
   it("keeps an uninitialized Size and topping selection visible, without silently choosing another Size", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:3001");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...detail, sizes: [{ ...detail.sizes[0], onHand: null, availableQuantity: null, inventoryStatus: "UNINITIALIZED" }, detail.sizes[1]] }) }));

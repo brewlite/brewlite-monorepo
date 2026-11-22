@@ -24,23 +24,42 @@ export function PaymentResult({ paymentId }: { paymentId: string | null }) {
     MISSING_SIGNATURE: 'Phản hồi đối soát thiếu chữ ký; chưa thể xác nhận thanh toán.', INVALID_SIGNATURE: 'Chữ ký đối soát không hợp lệ; chưa thể xác nhận thanh toán.',
     PROVIDER_ERROR: 'VNPay chưa trả được kết quả giao dịch hợp lệ.', MERCHANT_MISMATCH: 'Thông tin merchant trong kết quả không khớp.',
     REFERENCE_MISMATCH: 'Mã giao dịch trong kết quả không khớp.', AMOUNT_MISMATCH: 'Số tiền đối soát không khớp.',
+    INVALID_COMMAND: 'Loại lệnh đối soát trong phản hồi không hợp lệ.', INVALID_TRANSACTION_TYPE: 'Loại giao dịch đối soát không khớp giao dịch thanh toán.',
+    MISSING_RESPONSE_ID: 'Phản hồi đối soát thiếu mã định danh từ VNPay.', NO_VERIFIED_RESULT: 'Chưa có kết quả đối soát được xác minh từ VNPay.',
     RATE_LIMITED: 'Vui lòng chờ trước khi yêu cầu đối soát lại.', ATTEMPT_LIMIT: 'Đã đạt giới hạn tra cứu. Vui lòng liên hệ cửa hàng.',
     VERIFIED: 'Đã xác minh phản hồi VNPay. Trạng thái thanh toán hiển thị theo kết quả Backend xử lý.',
   };
   useEffect(() => {
     if (!paymentId) return;
-    let active = true; let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
-      if (document.hidden) { timer = setTimeout(() => void load(), 15000); return; }
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    let inFlight = false;
+    let settled = false;
+    const load = async (initial = false) => {
+      if (!active || inFlight || settled) return;
+      clearTimeout(timer);
+      if (!initial && document.hidden) return;
+      inFlight = true;
       try {
         const next = await readPayment(paymentId);
         if (!active) return;
         setPayment(next); setError('');
+        settled = next.status === 'SUCCESS' || next.status === 'FAILED';
         if (next.status === 'SUCCESS') window.dispatchEvent(new Event('brewlite:cart-updated'));
-        if (next.status === 'PENDING' || next.status === 'UNKNOWN') timer = setTimeout(() => void load(), 15000);
+        if (!settled && !document.hidden) timer = setTimeout(() => void load(), 15000);
       } catch (caught) { if (active) setError(authError(caught)); }
+      finally { inFlight = false; }
     };
-    void load(); return () => { active = false; clearTimeout(timer); };
+    const resume = () => { if (!document.hidden && !settled) void load(); };
+    void load(true);
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('focus', resume);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('focus', resume);
+    };
   }, [paymentId, attempt]);
   useEffect(() => {
     if (!payment?.orderId) return;
@@ -80,7 +99,7 @@ export function PaymentResult({ paymentId }: { paymentId: string | null }) {
       {error && <p role="alert">{error} <button onClick={() => setAttempt((value) => value + 1)}>Thử lại</button></p>}
       {payment && <><dl className="po-summary"><div><dt>Mã đơn</dt><dd>{orderCode || payment.orderId}</dd></div><div><dt>Phương thức</dt><dd>{method}</dd></div><div><dt>Trạng thái</dt><dd className="po-status">{statusLabels[payment.status]}</dd></div><div className="po-amount"><dt>Số tiền</dt><dd>{formatPrice(payment.amount)}đ</dd></div></dl>{failed && !canRetry && <p role="status">{currentDetails?.retryReason ?? 'Đang kiểm tra điều kiện thanh toán lại…'}</p>}<div className="po-actions">{failed && canRetry && <Link className="po-primary" href={`/orders/${payment.orderId}`}>Thử lại thanh toán</Link>}<Link className={failed && canRetry ? 'po-secondary' : 'po-primary'} href={`/orders/${payment.orderId}`}>Xem chi tiết đơn</Link>{success && <Link className="po-secondary" href="/menu">Về thực đơn</Link>}</div></>}
       {payment && ['PENDING', 'UNKNOWN'].includes(payment.status) && <p>Chưa có xác nhận thành công từ Backend. Không thanh toán lại trong khi giao dịch đang được xác minh.</p>}
-      {payment?.providerPaymentId?.startsWith('vnpay:') && ['PENDING', 'UNKNOWN'].includes(payment.status) && <button disabled={inquiring} onClick={async () => { setInquiring(true); try { const result = await sendStore<Payment>(`/payments/${payment.id}/reconcile`, {}); setPayment(result); setDiagnostic(result.reconciliation); setError(''); } catch (caught) { setError(authError(caught)); } finally { setInquiring(false); } }}>{inquiring ? 'Đang đối soát…' : 'Yêu cầu đối soát VNPay'}</button>}
+      {payment?.providerPaymentId?.startsWith('vnpay:') && ['PENDING', 'UNKNOWN'].includes(payment.status) && <button disabled={inquiring} onClick={async () => { setInquiring(true); try { const result = await sendStore<Payment>(`/payments/${payment.id}/reconcile`, {}); setPayment(result); setDiagnostic(result.reconciliation); setError(''); if (result.status === 'SUCCESS') window.dispatchEvent(new Event('brewlite:cart-updated')); } catch (caught) { setError(authError(caught)); } finally { setInquiring(false); } }}>{inquiring ? 'Đang đối soát…' : 'Yêu cầu đối soát VNPay'}</button>}
       {diagnostic && <p role="status">{reasons[diagnostic.reason] ?? 'Chưa có kết quả đối soát được xác minh.'}{diagnostic.responseCode && ` Mã phản hồi ${diagnostic.signatureVerified ? 'đã xác minh' : 'chưa xác minh'}: ${diagnostic.responseCode}.`}{diagnostic.retryAfterSeconds ? ` Thử lại sau ${diagnostic.retryAfterSeconds} giây.` : ''}</p>}
     </>}
     {!success && !failed && <p className="po-history"><Link href="/orders">Lịch sử mua hàng</Link></p>}</article></div>;

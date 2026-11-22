@@ -1,4 +1,4 @@
-import type { Size } from '@prisma/client';
+import { OrderStatus, type Size } from '@prisma/client';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -23,6 +23,12 @@ export class ProductsService {
       where: {
         isAvailable: true,
         OR: [{ categoryId: null }, { category: { isActive: true } }],
+        sizes: {
+          some: {
+            isAvailable: true,
+            onHand: { not: null },
+          },
+        },
       },
       include: {
         category: true,
@@ -34,6 +40,50 @@ export class ProductsService {
       ...product,
       sizes: product.sizes.map(publicSize),
     }));
+  }
+
+  async findRecommendations(limit = 4) {
+    const [catalog, topSales] = await Promise.all([
+      this.findAll(),
+      this.prisma.orderItem.groupBy({
+        by: ['productId'],
+        where: {
+          order: { isLegacy: false, status: OrderStatus.COMPLETED },
+        },
+        _sum: { quantity: true, lineTotal: true },
+        orderBy: [
+          { _sum: { quantity: 'desc' } },
+          { _sum: { lineTotal: 'desc' } },
+        ],
+      }),
+    ]);
+
+    const inStock = catalog.filter((product) =>
+      product.sizes.some((size) => size.inventoryStatus === 'AVAILABLE'),
+    );
+    const eligible = inStock.length > 0 ? inStock : catalog;
+    const byId = new Map(eligible.map((product) => [product.id, product]));
+    const picked: typeof eligible = [];
+    const seen = new Set<string>();
+
+    for (const sale of topSales) {
+      if (picked.length >= limit) break;
+      const product = byId.get(sale.productId);
+      if (product && !seen.has(product.id)) {
+        seen.add(product.id);
+        picked.push(product);
+      }
+    }
+
+    for (const product of eligible) {
+      if (picked.length >= limit) break;
+      if (!seen.has(product.id)) {
+        seen.add(product.id);
+        picked.push(product);
+      }
+    }
+
+    return picked;
   }
 
   async findOne(id: string) {

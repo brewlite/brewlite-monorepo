@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configurationIssue, productIssue } from "../lib/product-availability";
+import { configurationIssue, isUninitializedCatalogProduct, productIssue } from "../lib/product-availability";
 import { makeProduct } from "./product-fixture";
 
 describe("catalog availability never uses legacy Product stock", () => {
@@ -21,5 +21,12 @@ describe("catalog availability never uses legacy Product stock", () => {
     expect(productIssue({ ...product, sizes: [{ ...size, isAvailable: false }] })).toBe("Size đang ngừng bán");
     expect(productIssue({ ...product, sizes: [{ ...size, onHand: 2 }] })).toBe("Hết hàng");
     expect(productIssue({ ...product, sizes: [size] })).toBeNull();
+  });
+
+  it("identifies products whose active sizes have no initialized inventory so customer menus can hide them", () => {
+    expect(isUninitializedCatalogProduct({ ...product, sizes: [{ ...size, onHand: null }] })).toBe(true);
+    expect(isUninitializedCatalogProduct({ ...product, sizes: [{ ...size, isAvailable: false }] })).toBe(true);
+    expect(isUninitializedCatalogProduct({ ...product, sizes: [{ ...size, onHand: null }, size] })).toBe(false);
+    expect(isUninitializedCatalogProduct({ ...product, sizes: [{ ...size, onHand: 0, reserved: 0 }] })).toBe(false);
   });
 });

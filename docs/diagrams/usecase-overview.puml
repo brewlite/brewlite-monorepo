@@ -1,76 +1,117 @@
 @startuml
-' P0 2026-11-07: source labels updated; exported SVG/VP Class/Activity not regenerated.
+!pragma layout smetana
 left to right direction
 skinparam defaultFontName Arial
 skinparam packageStyle rectangle
 skinparam shadowing false
 skinparam usecaseBackgroundColor #F4FAFF
 skinparam usecaseBorderColor #35567C
-skinparam actorBorderColor #333333
+skinparam actorBorderColor #2F3E4E
+skinparam noteBackgroundColor #FFFDF2
+skinparam noteBorderColor #B59F5B
 
-actor "Khách hàng\n(CUSTOMER / Guest)" as C
-actor "Nhân viên pha chế\n(STAFF)" as S
-actor "Chủ cửa hàng\n(ADMIN)" as O
-actor "Cổng thanh toán\nmô phỏng" as P
+title BrewLite — Sơ đồ Use-Case Tổng Quan Hệ Thống (Assignment 2 - Task 1.2)
 
-rectangle "BrewLite System — MVP Assignment 2" {
-  usecase "Xem thực đơn" as UC01
-  usecase "Xem chi tiết sản phẩm" as UC02
-  usecase "Chọn size/topping" as UC03
-  usecase "Quản lý giỏ hàng" as UC04
-  usecase "Đăng ký email/password\nvà xác minh Gmail OTP" as UC05
-  usecase "Đăng nhập email/password" as UC06
-  usecase "Đăng xuất" as UC07
-  usecase "Đặt và thanh toán đơn" as UC08
-  usecase "Kiểm tra tồn kho" as UC09
-  usecase "Tạo đơn chờ thanh toán" as UC10
-  usecase "Thanh toán mô phỏng" as UC11
-  usecase "Áp dụng mã giảm giá" as UC12
-  usecase "Dùng điểm thưởng" as UC13
-  usecase "Xem lịch sử đơn" as UC14
-  usecase "Theo dõi trạng thái đơn" as UC15
-  usecase "Quản lý đơn\n(đã thanh toán)" as UC16
-  usecase "Quản lý thực đơn" as UC17
-  usecase "Quản lý khuyến mãi" as UC18
-  usecase "Quản lý người dùng" as UC19
-  usecase "Giám sát đơn\n(chỉ đọc)" as UC20
+actor "Khách hàng\n(Guest / CUSTOMER)" as C
+actor "Nhân viên\n(STAFF — Pha chế & Thu ngân)" as S
+actor "Quản trị viên\n(ADMIN)" as A
+actor "Cổng thanh toán\n(Mock / VNPay Sandbox)" as Pay
+actor "Dịch vụ Email\n(Gmail SMTP OTP)" as Mail
+
+rectangle "Hệ thống BrewLite (Next.js + NestJS + PostgreSQL)" {
+  package "Thực đơn & Giỏ hàng" {
+    usecase "UC01: Xem thực đơn,\ntìm kiếm & lọc danh mục\n(ẩn món chưa nhập tồn)" as UC01
+    usecase "UC02: Xem chi tiết món &\nchọn Size / Topping / Ghi chú" as UC02
+    usecase "UC03: Quản lý giỏ hàng\n(Guest / DB / Giỏ POS)" as UC03
+  }
+
+  package "Xác thực & Tài khoản" {
+    usecase "UC04: Đăng ký email/password\n& xác minh Gmail OTP" as UC04
+    usecase "UC05: Đăng nhập, làm mới phiên\n& đăng xuất (JWT Cookie)" as UC05
+  }
+
+  package "Đặt hàng & Thanh toán (Khách hàng)" {
+    usecase "UC06: Đặt và thanh toán đơn hàng" as UC06
+    usecase "UC07: Kiểm tra tồn kho Size\n& tính giá server-side" as UC07
+    usecase "UC08: Tạo đơn PENDING &\ngiữ tài nguyên (TTL 10 phút)" as UC08
+    usecase "UC09: Thanh toán đơn hàng\n(Mock / VNPay Sandbox)" as UC09
+    usecase "UC10: Áp dụng mã giảm giá" as UC10
+    usecase "UC11: Dùng điểm thưởng" as UC11
+    usecase "UC12: Hủy đơn & hoàn tiền\ntrước khi pha chế" as UC12
+    usecase "UC13: Xem lịch sử đơn, trạng thái,\nđiểm thưởng & thông báo" as UC13
+  }
+
+  package "Bán tại quầy (POS), Ca thu ngân & Pha chế" {
+    usecase "UC14: Mở / Đóng ca thu ngân\n& đếm két (CashShift)" as UC14
+    usecase "UC15: Đặt món thay khách trực tiếp\n(tận dụng Thực đơn & Giỏ chung,\nkhông áp dụng mã giảm giá/điểm)" as UC15
+    usecase "UC16: Thu tiền tại quầy\n(Tiền mặt hoặc xác nhận Chuyển khoản QR)" as UC16
+    usecase "UC17: Hủy đơn & hoàn tiền tại quầy\n(ghi sổ ca & lý do bắt buộc)" as UC17
+    usecase "UC18: Xử lý đơn cần phục vụ\n(PAID → PREPARING → READY → COMPLETED)" as UC18
+  }
+
+  package "Quản trị cửa hàng (ADMIN)" {
+    usecase "UC19: Quản lý thực đơn &\nkhởi tạo/cập nhật tồn kho Size" as UC19
+    usecase "UC20: Quản lý khuyến mãi\n& người dùng (RBAC)" as UC20
+    usecase "UC21: Giám sát đơn hàng &\nhồ sơ tài khoản (chỉ đọc)" as UC21
+    usecase "UC22: Đối soát tiền mặt &\nthu quỹ cuối ca (RECONCILED)" as UC22
+  }
 }
 
+' Khách hàng
 C -- UC01
 C -- UC02
 C -- UC03
 C -- UC04
 C -- UC05
 C -- UC06
-C -- UC07
-C -- UC08
-C -- UC14
-C -- UC15
-S -- UC06
-S -- UC07
+C -- UC12
+C -- UC13
+
+' Nhân viên (STAFF)
+S -- UC01
+S -- UC02
+S -- UC03
+S -- UC05
+S -- UC14
+S -- UC15
 S -- UC16
-O -- UC06
-O -- UC07
-O -- UC17
-O -- UC18
-O -- UC19
-O -- UC20
-note right of O
-  ADMIN giám sát đơn, không cập nhật pha chế.
-  Không tự xác nhận payment SUCCESS.
+S -- UC17
+S -- UC18
+
+' Quản trị viên (ADMIN)
+A -- UC05
+A -- UC19
+A -- UC20
+A -- UC21
+A -- UC22
+
+' Hệ thống ngoài
+UC04 -- Mail
+UC09 -- Pay
+UC16 -- Pay
+
+' Quan hệ Include / Extend
+UC06 ..> UC07 : <<include>>
+UC06 ..> UC08 : <<include>>
+UC06 ..> UC09 : <<include>>
+UC10 ..> UC06 : <<extend>>\n[có mã giảm giá]
+UC11 ..> UC06 : <<extend>>\n[CUSTOMER dùng điểm]
+UC04 ..> UC06 : <<extend>>\n[chưa đăng nhập - đăng ký]
+UC05 ..> UC06 : <<extend>>\n[chưa đăng nhập - đăng nhập]
+
+UC15 ..> UC07 : <<include>>
+UC15 ..> UC08 : <<include>>
+UC15 ..> UC16 : <<include>>
+
+note bottom of UC16
+  Tại quầy chỉ có 2 phương thức: Tiền mặt (cần CashShift OPEN)
+  và Chuyển khoản QR (hiện mã QR, nhân viên kiểm tra & xác nhận trực tiếp).
+  Không áp dụng mã giảm giá/điểm thưởng; không dùng VNPay; không thu hộ đơn online.
 end note
-P -- UC11
 
-UC08 ..> UC09 : <<include>>
-UC08 ..> UC10 : <<include>>
-UC08 ..> UC11 : <<include>>
-UC12 ..> UC08 : <<extend>>\n[có mã]
-UC13 ..> UC08 : <<extend>>\n[dùng điểm]
-UC05 ..> UC08 : <<extend>>\n[chưa đăng nhập, chọn đăng ký]
-UC06 ..> UC08 : <<extend>>\n[chưa đăng nhập, chọn đăng nhập]
-
-note bottom of UC11
-  Không dùng tiền thật.
-  UNKNOWN xử lý bằng status inquiry.
+note right of A
+  ADMIN chỉ giám sát đơn hàng, không chuyển
+  trạng thái pha chế và không tự duyệt payment SUCCESS.
+  Sau khi đối soát ca (RECONCILED), sổ ca bị khóa bất biến.
 end note
 @enduml

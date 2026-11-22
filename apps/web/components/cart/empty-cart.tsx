@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getProducts } from "../../services/product.service";
+import { getRecommendedProducts } from "../../services/product.service";
 import type { Product } from "../../types/product";
-import { productIssue } from "../../lib/product-availability";
+import { isUninitializedCatalogProduct, productIssue } from "../../lib/product-availability";
 import { ProductList } from "../menu/product-list";
 
 export function EmptyCart() {
@@ -13,9 +13,9 @@ export function EmptyCart() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    getProducts().then((items) => {
+    getRecommendedProducts().then((items) => {
       if (!active) return;
-      setProducts(items.filter((item) => item.isAvailable && item.category?.isActive !== false).sort((a, b) => Number(productIssue(a) !== null) - Number(productIssue(b) !== null)).slice(0, 4));
+      setProducts(items.filter((item) => item.isAvailable && item.category?.isActive !== false && !isUninitializedCatalogProduct(item)).sort((a, b) => Number(productIssue(a) !== null) - Number(productIssue(b) !== null)).slice(0, 4));
       setError(false);
     }).catch(() => { if (active) setError(true); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

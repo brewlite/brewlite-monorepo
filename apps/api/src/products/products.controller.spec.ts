@@ -23,6 +23,7 @@ describe('ProductsController', () => {
 
   const mockProductsService = {
     findAll: jest.fn().mockResolvedValue([mockProduct]),
+    findRecommendations: jest.fn().mockResolvedValue([mockProduct]),
     findOne: jest.fn().mockImplementation((id: string) => {
       if (id === mockProduct.id) {
         return Promise.resolve(mockProduct);
@@ -55,6 +56,14 @@ describe('ProductsController', () => {
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Cà phê sữa đá BrewLite');
       expect(mockProductsService.findAll).toHaveBeenCalled();
+    });
+  });
+
+  describe('getRecommendations', () => {
+    it('returns recommended best-selling products', async () => {
+      const result = await controller.getRecommendations();
+      expect(result).toHaveLength(1);
+      expect(mockProductsService.findRecommendations).toHaveBeenCalled();
     });
   });
 

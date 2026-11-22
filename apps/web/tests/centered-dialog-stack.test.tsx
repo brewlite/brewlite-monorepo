@@ -13,9 +13,10 @@ it("dismisses only the top confirmation and stops Escape propagation", () => {
   }
   render(<Stack />);
   const dialog = screen.getByRole("dialog", { name: "Khóa tài khoản?" });
-  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(fireEvent.keyDown(dialog, { key: "Escape" })).toBe(false);
+  expect(screen.queryByRole("dialog", { name: "Khóa tài khoản?" })).toBeNull();
   expect(globalEscape).not.toHaveBeenCalled();
-  fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+
   expect(screen.queryByRole("dialog", { name: "Khóa tài khoản?" })).toBeNull();
   expect(screen.getByRole("dialog", { name: "Sửa tài khoản" })).toBeDefined();
   expect((screen.getByLabelText("Tên") as HTMLInputElement).value).toBe("Tên đang sửa");

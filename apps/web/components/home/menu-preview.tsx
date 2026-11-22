@@ -7,6 +7,7 @@ import type { Product } from "../../types/product";
 import { getProducts } from "../../services/product.service";
 import { ProductImage } from "../menu/product-image";
 import { getMenuHighlights } from "../../lib/featured-products";
+import { isUninitializedCatalogProduct } from "../../lib/product-availability";
 
 export function MenuPreview() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -18,7 +19,7 @@ export function MenuPreview() {
   useEffect(() => {
     let active = true;
     getProducts().then((items) => {
-      if (active) setProducts(items.filter((item) => item.isAvailable));
+      if (active) setProducts(items.filter((item) => item.isAvailable && !isUninitializedCatalogProduct(item)));
     }).catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

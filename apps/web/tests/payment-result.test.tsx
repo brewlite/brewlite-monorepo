@@ -76,3 +76,30 @@ it('shows verified mock refund separately from original SUCCESS payment',async()
   expect(screen.queryByText('Cảm ơn bạn! Đơn hàng đã được ghi nhận.')).toBeNull();
   expect(screen.getByText('Đã thanh toán')).toBeTruthy();
 });
+it('updates status and refreshes the cart badge when VNPay reconciliation resolves UNKNOWN to SUCCESS', async () => {
+  const onCartUpdated = vi.fn();
+  window.addEventListener('brewlite:cart-updated', onCartUpdated);
+  try {
+    vi.mocked(readPayment).mockResolvedValue({ id: 'p', orderId: 'o', status: 'UNKNOWN', amount: '45000', providerPaymentId: 'vnpay:fixture' });
+    vi.mocked(sendStore).mockResolvedValue({ id: 'p', orderId: 'o', status: 'SUCCESS', amount: '45000', providerPaymentId: 'vnpay:fixture', reconciliation: { reason: 'VERIFIED', responseCode: '00', signatureVerified: true } });
+    render(<PaymentResult paymentId="p" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Yêu cầu đối soát VNPay' }));
+    expect(await screen.findByText('Thanh toán thành công')).toBeDefined();
+    expect(onCartUpdated).toHaveBeenCalledTimes(1);
+  } finally {
+    window.removeEventListener('brewlite:cart-updated', onCartUpdated);
+  }
+});
+it('loads initial payment status immediately even if document.hidden is true on redirect', async () => {
+  const originalHidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+  try {
+    vi.mocked(readPayment).mockResolvedValue({ id: 'p', orderId: 'o', status: 'FAILED', amount: '79000', providerPaymentId: 'vnpay:fixture' });
+    render(<PaymentResult paymentId="p" />);
+    expect(await screen.findByText('Thanh toán thất bại')).toBeDefined();
+    expect(readPayment).toHaveBeenCalledTimes(1);
+  } finally {
+    if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden);
+    else delete (document as { hidden?: boolean }).hidden;
+  }
+});

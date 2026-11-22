@@ -6,6 +6,7 @@ import type { Product } from "../../types/product";
 import { getProducts } from "../../services/product.service";
 import { categoryName, categoryOptions, filterCatalog, pageSlice } from "../../lib/catalog";
 import { setMenuCategory, setMenuPage, setMenuQuery, useMenuView } from "../../lib/menu-view";
+import { isUninitializedCatalogProduct } from "../../lib/product-availability";
 import { FeatureSlider } from "./feature-slider";
 import { ProductList } from "./product-list";
 
@@ -38,7 +39,7 @@ export function MenuCatalog({ variant = "home" }: { variant?: "home" | "page" })
     async function fetchProducts() {
       try {
         const data = await getProducts();
-        if (active) setProducts(data);
+        if (active) setProducts(data.filter((item) => !isUninitializedCatalogProduct(item)));
       } catch {
         if (active) setError("Không thể kết nối đến máy chủ. Vui lòng thử lại.");
       } finally {
@@ -164,7 +165,6 @@ export function MenuCatalog({ variant = "home" }: { variant?: "home" | "page" })
         <div className="container">
           <div className="section-head center">
             <span className="eyebrow center">Trên quầy</span>
-            <p className="lead-txt">Danh sách lấy từ máy chủ. Bấm vào món để xem chi tiết và thêm vào giỏ.</p>
           </div>
           {loading || error || products.length === 0 ? <div style={{ marginTop: "2rem" }}>{states}</div> : (
             <>
@@ -197,7 +197,6 @@ export function MenuCatalog({ variant = "home" }: { variant?: "home" | "page" })
             <div className="bl-head-row" style={{ flexDirection: "column", alignItems: "center", textAlign: "center" }}>
               <div className="section-head center" style={{ width: "100%" }}>
                 <span className="eyebrow center">Đang bán</span>
-                <p className="lead-txt">Mỗi trang có tối đa 12 món. Giá trên thẻ là giá cơ bản.</p>
               </div>
               <Link href="/menu" className="btn btn-ghost">Tất cả đồ uống</Link>
             </div>

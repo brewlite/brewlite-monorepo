@@ -18,7 +18,7 @@ Ngày: 2026-11-07 · Trạng thái: nội dung theo quyết định người yê
 | DEC-06 | Access JWT 15 phút; refresh opaque 7 ngày tuyệt đối, hash DB, rotation và phát hiện reuse; logout revoke server + clear hai HttpOnly cookies. |
 | DEC-07 | Cấu hình giỏ = productId + sizeId + toppingIds sắp xếp + note chuẩn hóa. Merge sau login idempotent, không mất local hoặc âm thầm bỏ tùy chọn. |
 | DEC-08 | Decimal VND nguyên; API money là chuỗi nguyên. Giữ /api/cart/calculate; quote không giữ tài nguyên. Backend reprice/reserve ở transaction tạo Order. |
-| DEC-09 | Một coupon, cap 50% subtotal; 100đ/điểm, cap 20% after-coupon; EARN floor(payable/10000) chỉ khi COMPLETED. |
+| DEC-09 | Một coupon, cap 50% subtotal; 100đ/điểm, cap 50% after-coupon; EARN floor(payable/10000) chỉ khi PAID/COMPLETED. |
 | DEC-10 | Order PENDING_PAYMENT→PAID→PREPARING→READY→COMPLETED; cancel pending hợp lệ. Payment nhiều attempts, PENDING/SUCCESS/FAILED/UNKNOWN. |
 | DEC-11 | Giữ đơn 10 phút, tối đa 3 attempts; UNKNOWN phải reconcile trước retry/cancel; reserve/consume/release và reward đúng một lần. Không giữ DB transaction khi chờ gateway. |
 | DEC-12 | Bootstrap ADMIN qua công cụ CLI local có kiểm soát, sau email verification và approval tài khoản; không có public elevate API hoặc tự nâng mọi MANAGER. |

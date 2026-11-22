@@ -6,7 +6,7 @@ import LoginForm from "../auth/login-form";
 import { useAuthUser, setAuthUser } from "../../lib/auth-store";
 import { authError, logout } from "../../services/auth.service";
 import { usePathname } from "next/navigation";
-import { useCart } from "../cart/cart-provider";
+import { useCart, STAFF_CART_STORAGE_KEY } from "../cart/cart-provider";
 import { setMenuQuery, useMenuView } from "../../lib/menu-view";
 
 const links = [
@@ -14,6 +14,17 @@ const links = [
   { href: "/menu", label: "THỰC ĐƠN" },
   { href: "/cart", label: "GIỎ HÀNG" },
   { href: "/orders", label: "LỊCH SỬ MUA HÀNG" },
+];
+
+const staffLinks = [
+  { href: "/", label: "TRANG CHỦ" },
+  { href: "/menu", label: "THỰC ĐƠN" },
+  { href: "/cart", label: "GIỎ HÀNG" },
+];
+
+const adminLinks = [
+  { href: "/", label: "TRANG CHỦ" },
+  { href: "/menu", label: "THỰC ĐƠN" },
 ];
 
 function BrandMark() {
@@ -113,7 +124,11 @@ function AccountMenu() {
               {user.role === "ADMIN" && <Link href="/admin" role="menuitem">Quản trị</Link>}
               <button type="button" role="menuitem" disabled={loggingOut} onClick={async () => {
                 setLoggingOut(true); setAuthMessage("");
-                try { await logout(); setAuthUser(null); setHover(false); setPinned(false); window.location.replace('/'); }
+                try {
+                  await logout();
+                  try { sessionStorage.removeItem(STAFF_CART_STORAGE_KEY); } catch { /* ignore */ }
+                  setAuthUser(null); setHover(false); setPinned(false); window.location.replace('/');
+                }
                 catch (error) { setAuthMessage(authError(error)); }
                 finally { setLoggingOut(false); }
               }}>Đăng xuất</button>
@@ -151,8 +166,15 @@ function HeaderSearch() {
 }
 export function Header() {
   const { count } = useCart();
+  const user = useAuthUser();
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
+  const navLinks =
+    user?.role === "ADMIN"
+      ? adminLinks
+      : user?.role === "STAFF"
+        ? staffLinks
+        : links;
 
   function current(href: string) {
     if (href === "/") return pathname === "/";
@@ -169,7 +191,7 @@ export function Header() {
           </Link>
           <div id="nav-menu" className={`nav-panel${open ? " open" : ""}`}>
             <ul className="nav-list">
-              {links.map((link) => (
+              {navLinks.map((link) => (
                 <li key={link.href}>
                   <Link
                     className={`nav-link${current(link.href) ? " active" : ""}`}

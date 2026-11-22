@@ -18,7 +18,7 @@
 | SP-05 | JWT access **15 phút**; refresh token **7 ngày**, luân phiên và thu hồi khi logout; kiểm tra phiên/revocation server | [D] tham chiếu [S] | Tránh phát biểu không đúng rằng xóa token ở client đủ để revoke JWT; SEC-02 |
 | SP-06 | Decimal giữ kiểu cột chuyển đổi, enforce VND nguyên; API chuỗi số nguyên; UTC trong DB, Asia/Ho_Chi_Minh ở UI. Snapshot giá khi Order, không tin tiền client. | Quyết định P0 | TC-05; không floating-point cộng tiền hoặc silently round dữ liệu cũ |
 | SP-07 | Một checkout dùng **tối đa 01 coupon** cộng điểm thưởng. Coupon cố định hoặc %; % từ 1–50, coupon giảm **không quá 50% subtotal**; điều kiện min basket theo cấu hình; code dùng đúng 1 lần/khách nếu cấu hình | [D] cụ thể hóa [U] | Quy tắc xác định, không phát sinh đơn 0đ; TC-06 |
-| SP-08 | Điểm quy đổi **1 điểm = 100 VND**; dùng số điểm nguyên; giới hạn quy đổi **≤20% giá trị còn lại sau coupon**; tích điểm **1 điểm / 10.000 VND đã thanh toán**, làm tròn xuống, ghi khi `PAID` | [D] cụ thể hóa [U] | Tách đổi điểm và tích điểm; TC-07, TC-17 |
+| SP-08 | Điểm quy đổi **1 điểm = 100 VND**; dùng số điểm nguyên; giới hạn quy đổi **≤50% giá trị còn lại sau coupon**; tích điểm **1 điểm / 10.000 VND đã thanh toán**, làm tròn xuống, ghi khi `PAID` | [D] cụ thể hóa [U] | Tách đổi điểm và tích điểm; TC-07, TC-17 |
 | SP-09 | Thứ tự tính: `subtotal` → `couponDiscount` → `redeemValue` → `payable`; mọi bước do API tính với VND nguyên, làm tròn giảm giá phần trăm xuống đồng; không thêm thuế/ship trong MVP | [D],[S] | Công thức duy nhất, TC-05–07 |
 | SP-10 | Size.id là SKU, Size thuộc Product; onHand/reserved/isAvailable; available=onHand-reserved. onHand NULL chưa phân bổ và không thể đặt. Không ProductSKU, không nhân tồn Product cho mỗi Size; stockQuantity legacy đến switch. | Quyết định P0 | INT-05, migration allocation được duyệt |
 | SP-11 | Tạo đơn `PENDING`: **atomic reservation** của SKU, coupon quota và điểm; không trừ điểm/đánh dấu mã đã dùng. `PAID`: chuyển reservation sang tiêu thụ. Hủy/hết hạn: **release** reservation một lần | [D] để thống nhất postcondition [U] | Tránh oversell và double spend; INT-05–08 |
@@ -33,13 +33,13 @@
 - `subtotal = Σ [(basePrice(product, size) + Σ toppingPrice) × quantity]`.
 - `couponDiscount = min(couponRawDiscount, floor(subtotal × 0.50))`, với `couponRawDiscount = fixedAmount` hoặc `floor(subtotal × percent / 100)`; chỉ dùng khi đủ mọi điều kiện.
 - `afterCoupon = subtotal − couponDiscount`.
-- `redeemPoints ≤ min(balancePoints − reservedPoints, floor((afterCoupon × 0.20) / 100))` (điểm nguyên). `redeemValue = redeemPoints × 100`.
+- `redeemPoints ≤ min(balancePoints − reservedPoints, floor((afterCoupon × 0.50) / 100))` (điểm nguyên). `redeemValue = redeemPoints × 100`.
 - `payable = afterCoupon − redeemValue` (VND nguyên). Số không âm và với `subtotal > 0`, `payable > 0` theo chính sách giới hạn.
 - `earnedPoints = floor(payable / 10_000)` **một lần** khi đơn hoàn thành, sau khi đã thanh toán thành công.
 
 **Preview giá:** `POST /api/cart/calculate` là thao tác đọc/tính tiền **không giữ hàng, không tạo đơn**; `POST /orders` luôn kiểm tra lại giá và tồn kho trước khi commit.
 
-**Ví dụ kiểm chứng:** 2 món × 50.000 = 100.000 VND; coupon 10% = 10.000; sau coupon 90.000; khách dùng 100 điểm = 10.000 VND (giới hạn 20% = 18.000); `payable = 80.000 VND`; đơn hoàn thành tích 8 điểm. Nếu thanh toán thất bại/hủy: không bị trừ 100 điểm, không tiêu coupon, không phát sinh 8 điểm tích lũy.
+**Ví dụ kiểm chứng:** 2 món × 50.000 = 100.000 VND; coupon 10% = 10.000; sau coupon 90.000; khách dùng 100 điểm = 10.000 VND (giới hạn 50% = 45.000); `payable = 80.000 VND`; đơn hoàn thành tích 8 điểm. Nếu thanh toán thất bại/hủy: không bị trừ 100 điểm, không tiêu coupon, không phát sinh 8 điểm tích lũy.
 
 ### 2.2 Thanh toán và tồn kho — quy tắc transaction
 
@@ -92,7 +92,7 @@
 
 ## 6. Baseline P0 và phê duyệt còn thiếu
 
-Quyết định người yêu cầu ngày 07/11/2026 được ghi tại [ADR-0001](../architecture/adr/0001-p0-baseline.md). Review/sign-off nhóm ở mục 4 vẫn chưa có evidence, không tự chuyển thành Approved. Các giá trị 100đ/điểm, cap50%/20%, TTL10m và max3 attempts là chính sách thiết kế, không gán thành quy định cứng của giảng viên.
+Quyết định người yêu cầu ngày 07/11/2026 được ghi tại [ADR-0001](../architecture/adr/0001-p0-baseline.md). Review/sign-off nhóm ở mục 4 vẫn chưa có evidence, không tự chuyển thành Approved. Các giá trị 100đ/điểm, cap50%/50%, TTL10m và max3 attempts là chính sách thiết kế, không gán thành quy định cứng của giảng viên.
 
 Bổ sung: giữ 16 bảng, thêm đúng 5 bảng có mục đích theo [database baseline](../architecture/database-baseline.md); CUSTOMER/STAFF/ADMIN, MANAGER legacy theo mapping; access15m/refresh7d và bootstrap theo [Auth](../architecture/auth-session-spec.md), [RBAC](../architecture/rbac-matrix.md). Quote không cam kết hàng, transaction Order phải reprice/reserve.
 

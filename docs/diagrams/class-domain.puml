@@ -1,160 +1,335 @@
 @startuml
 !pragma layout smetana
 !theme plain
-title BrewLite — Domain theo Prisma hiện tại
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam classBackgroundColor #F8FBFF
+skinparam classBorderColor #35567C
+skinparam enumBackgroundColor #FFF9EC
+skinparam enumBorderColor #B5852A
+skinparam noteBackgroundColor #FFFDF2
+skinparam noteBorderColor #B59F5B
+
+title BrewLite — Sơ đồ Lớp Miền Nghiệp Vụ theo Prisma Schema (Assignment 2 - Task 2.3)
 hide methods
+
 class User {
- id: UUID
- email: string
- passwordHash: string
- emailVerifiedAt: DateTime?
- role: UserRole
- loyaltyPoints: int
- reservedPoints: int
+  +id: UUID <<PK>>
+  +fullName: String
+  +email: String <<unique>>
+  +passwordHash: String
+  +emailVerifiedAt: DateTime?
+  +isActive: Boolean
+  +role: UserRole
+  +loyaltyPoints: Int
+  +reservedPoints: Int
 }
-class Product {
- id: UUID
- name: string
- basePrice: Decimal
- imageUrl: string?
- isAvailable: boolean
+
+class AuthSession {
+  +id: UUID <<PK>>
+  +familyId: String?
+  +refreshTokenHash: String? <<unique>>
+  +expiresAt: DateTime
+  +revokedAt: DateTime?
 }
+
+class EmailVerification {
+  +id: UUID <<PK>>
+  +codeHash: String
+  +expiresAt: DateTime
+  +attempts: Int
+}
+
 class Category {
- id: UUID
- name: string
- isActive: boolean
+  +id: UUID <<PK>>
+  +name: String <<unique>>
+  +isActive: Boolean
 }
+
+class Product {
+  +id: UUID <<PK>>
+  +name: String
+  +description: String?
+  +basePrice: Decimal(10,2)
+  +imageUrl: String?
+  +isAvailable: Boolean
+}
+
 class Size {
- id: UUID
- name: string
- extraPrice: Decimal
- onHand: int?
- reserved: int
- version: int
+  +id: UUID <<PK>>
+  +name: String
+  +extraPrice: Decimal(10,2)
+  +onHand: Int?
+  +reserved: Int
+  +isAvailable: Boolean
+  +version: Int
 }
+
 class Topping {
- id: UUID
- name: string
- price: Decimal
- isAvailable: boolean
+  +id: UUID <<PK>>
+  +name: String <<unique>>
+  +price: Decimal(10,2)
+  +isAvailable: Boolean
 }
+
 class Cart {
- id: UUID
- version: int
+  +id: UUID <<PK>>
+  +version: Int
+  +updatedAt: DateTime
 }
+
 class CartItem {
- id: UUID
- quantity: int
- configurationKey: string?
- requiresConfiguration: boolean
- note: string?
+  +id: UUID <<PK>>
+  +quantity: Int
+  +configurationKey: String?
+  +requiresConfiguration: Boolean
+  +note: String?
 }
+
 class Order {
- id: UUID
- orderCode: string
- status: OrderStatus
- finalTotal: Decimal
- expiresAt: DateTime?
- version: int
- checkoutCartSnapshot: Json?
+  +id: UUID <<PK>>
+  +orderCode: String <<unique>>
+  +channel: OrderChannel
+  +guestLabel: String?
+  +status: OrderStatus
+  +subtotal: Decimal(10,2)
+  +discountAmount: Decimal(10,2)
+  +pointsUsed: Int
+  +pointsDiscount: Decimal(10,2)
+  +finalTotal: Decimal(10,2)
+  +couponCodeSnapshot: String?
+  +expiresAt: DateTime?
+  +version: Int
+  +note: String?
 }
+
 class OrderItem {
- productName: string
- sizeName: string
- unitPrice: Decimal
- quantity: int
- lineTotal: Decimal
+  +id: UUID <<PK>>
+  +productName: String
+  +sizeName: String?
+  +unitPrice: Decimal(10,2)
+  +quantity: Int
+  +lineTotal: Decimal(10,2)
+  +note: String?
 }
-class Payment {
- id: UUID
- method: PaymentMethod
- amount: Decimal
- status: PaymentStatus
- attemptNumber: int?
- transactionRef: string?
+
+class OrderItemTopping {
+  +id: UUID <<PK>>
+  +toppingName: String
+  +price: Decimal(10,2)
 }
-class Refund {
- id: UUID
- amount: Decimal
- provider: string
- status: RefundStatus
- idempotencyKey: string <<unique>>
- providerRefundId: string?
-}
-enum RefundStatus {
- REQUESTED
- PENDING
- SUCCESS
- FAILED
- UNKNOWN
-}
-class PaymentEvent {
- providerEventId: string <<unique>>
- processingStatus: string
-}
-class Promotion {
- code: string
- discountValue: Decimal
- usageLimit: int
- usedCount: int
- reservedCount: int
-}
-class LoyaltyTransaction {
- type: EARN|REDEEM|REFUND|EARN_REVERSAL
- points: int
- balanceAfter: int
-}
+
 class OrderReservation {
- state: HELD|CONSUMED|RELEASED
- expiresAt: DateTime
+  +id: UUID <<PK>>
+  +state: ReservationState
+  +pointsReserved: Int
+  +expiresAt: DateTime
+  +consumedAt: DateTime?
+  +releasedAt: DateTime?
 }
+
 class OrderStatusHistory {
- fromStatus: OrderStatus?
- toStatus: OrderStatus
- orderVersion: int
+  +id: UUID <<PK>>
+  +fromStatus: OrderStatus?
+  +toStatus: OrderStatus
+  +orderVersion: Int
+  +createdAt: DateTime
 }
+
+class Payment {
+  +id: UUID <<PK>>
+  +method: PaymentMethod
+  +amount: Decimal(10,2)
+  +status: PaymentStatus
+  +attemptNumber: Int?
+  +providerPaymentId: String? <<unique>>
+  +idempotencyKey: String? <<unique>>
+  +cashTendered: Decimal(10,2)?
+  +changeGiven: Decimal(10,2)?
+  +paidAt: DateTime?
+}
+
+class PaymentEvent {
+  +id: UUID <<PK>>
+  +providerEventId: String <<unique>>
+  +outcome: PaymentStatus
+  +amount: Decimal(10,2)
+  +processingStatus: PaymentEventProcessingStatus
+}
+
+class Refund {
+  +id: UUID <<PK>>
+  +amount: Decimal(10,2)
+  +provider: String
+  +status: RefundStatus
+  +idempotencyKey: String <<unique>>
+  +reason: String?
+  +resolvedAt: DateTime?
+}
+
+class CashShift {
+  +id: UUID <<PK>>
+  +status: CashShiftStatus
+  +openingFloat: Decimal(10,2)
+  +expectedCash: Decimal(10,2)?
+  +countedCash: Decimal(10,2)?
+  +variance: Decimal(10,2)?
+  +closingNote: String?
+  +reconcileNote: String?
+  +openedAt: DateTime
+  +closedAt: DateTime?
+  +reconciledAt: DateTime?
+}
+
+class Promotion {
+  +id: UUID <<PK>>
+  +code: String <<unique>>
+  +discountType: DiscountType
+  +discountValue: Decimal(10,2)
+  +maxDiscount: Decimal(10,2)?
+  +minOrderValue: Decimal(10,2)?
+  +usageLimit: Int
+  +usedCount: Int
+  +reservedCount: Int
+  +startDate: DateTime
+  +endDate: DateTime
+  +isActive: Boolean
+}
+
+class LoyaltyTransaction {
+  +id: UUID <<PK>>
+  +type: LoyaltyTransactionType
+  +points: Int
+  +balanceAfter: Int
+  +role: UserRole
+  +createdAt: DateTime
+}
+
+class Notification {
+  +id: UUID <<PK>>
+  +type: NotificationType
+  +title: String
+  +content: String
+  +eventKey: String? <<unique>>
+  +isRead: Boolean
+}
+
+class IdempotencyRecord {
+  +id: UUID <<PK>>
+  +operation: String
+  +key: String
+  +processingStatus: IdempotencyProcessingStatus
+  +requestHash: String
+  +expiresAt: DateTime
+}
+
 enum UserRole {
- CUSTOMER
- STAFF
- ADMIN
+  CUSTOMER
+  STAFF
+  ADMIN
 }
+
+enum OrderChannel {
+  CUSTOMER_APP
+  COUNTER_POS
+}
+
 enum OrderStatus {
- PENDING
- PAYMENT_FAILED
- PAID
- PREPARING
- READY
- COMPLETED
- CANCELLED
+  PENDING
+  PAYMENT_FAILED
+  PAID
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
 }
+
+enum PaymentMethod {
+  WALLET
+  CARD
+  CASH
+}
+
 enum PaymentStatus {
- PENDING
- UNKNOWN
- SUCCESS
- FAILED
+  PENDING
+  UNKNOWN
+  SUCCESS
+  FAILED
 }
-Category "0..1" -- "0..*" Product
-Product "1" -- "0..*" Size
+
+enum RefundStatus {
+  REQUESTED
+  PENDING
+  SUCCESS
+  FAILED
+  UNKNOWN
+}
+
+enum CashShiftStatus {
+  OPEN
+  CLOSED
+  RECONCILED
+}
+
+enum ReservationState {
+  HELD
+  CONSUMED
+  RELEASED
+}
+
+enum LoyaltyTransactionType {
+  EARN
+  REDEEM
+  REFUND
+  EARN_REVERSAL
+}
+
+' Quan hệ chính & bội số (Multiplicity)
+User "1" -- "0..*" AuthSession
+User "1" -- "0..1" EmailVerification
+User "1" -- "0..*" IdempotencyRecord
+User "1" -- "0..*" Notification
+User "1" -- "0..*" LoyaltyTransaction
 User "0..1" -- "0..1" Cart
+
+Category "0..1" -- "0..*" Product
+Product "1" *-- "0..*" Size
 Cart "1" *-- "0..*" CartItem
 CartItem "0..*" -- "1" Product
 CartItem "0..*" -- "0..1" Size
 CartItem "0..*" -- "0..*" Topping : CartItemTopping
-User "0..1" -- "0..*" Order
+
+User "0..1" -- "0..*" Order : đặt hàng (CUSTOMER)
+User "0..1" -- "0..*" Order : tạo đơn POS (STAFF)
+Promotion "0..1" -- "0..*" Order
 Order "1" *-- "1..*" OrderItem
+OrderItem "1" *-- "0..*" OrderItemTopping
 OrderItem "0..*" -- "1" Product
 OrderItem "0..*" -- "0..1" Size
+Order "1" -- "0..1" OrderReservation
+Order "1" *-- "0..*" OrderStatusHistory
+Order "0..1" -- "0..*" LoyaltyTransaction
+Order "0..1" -- "0..*" Notification
+
 Order "1" -- "0..*" Payment
 Payment "1" *-- "0..*" PaymentEvent
 Payment "1" -- "0..1" Refund
-Promotion "0..1" -- "0..*" Order
-Order "0..1" -- "0..*" LoyaltyTransaction
-User "1" -- "0..*" LoyaltyTransaction
-Order "1" -- "0..1" OrderReservation
-Order "1" *-- "0..*" OrderStatusHistory
+
+User "1" -- "0..*" CashShift : mở/đóng ca (STAFF)
+User "0..1" -- "0..*" CashShift : đối soát (ADMIN)
+CashShift "0..1" -- "0..*" Payment : thu tiền mặt
+CashShift "0..1" -- "0..*" Refund : hoàn tiền mặt
+
 note bottom of Size
-Available = onHand - reserved.
-onHand NULL: chưa nhập tồn, không bán.
-Không dùng Product.stockQuantity legacy.
+  Tồn khả dụng = onHand - reserved.
+  onHand = NULL: chưa nhập tồn → ẩn trên thực đơn khách & chặn đặt.
+  Không dùng Product.stockQuantity legacy.
+end note
+
+note bottom of CashShift
+  expectedCash = openingFloat + SUM(CASH Payment SUCCESS)
+                 - SUM(CASH Refund SUCCESS).
+  variance = countedCash - expectedCash.
+  Trạng thái RECONCILED khóa sổ vĩnh viễn.
 end note
 @enduml

@@ -27,7 +27,8 @@ export async function startVNPay(orderId: string) {
   const storage = `brewlite-vnpay-${orderId}`;
   const key = sessionStorage.getItem(storage) || crypto.randomUUID(); sessionStorage.setItem(storage, key);
   const payment = await sendStore<Payment>(`/orders/${orderId}/payments`, { method: 'VNPAY' }, 'post', key);
-  if (!payment.paymentUrl) { sessionStorage.removeItem(storage); return { payment }; }
+  sessionStorage.removeItem(storage);
+  if (!payment.paymentUrl) return { payment };
   return { payment, url: paymentDestination(payment.paymentUrl) };
 }
 export const readPayment = (id: string) => getStore<Payment>(`/payments/${encodeURIComponent(id)}`);

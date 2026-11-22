@@ -11,7 +11,8 @@ import { useCart } from "./cart-provider";
 import { EmptyCart } from "./empty-cart";
 
 export function CartPageBody() {
-  const { lines, subtotal, count, setQuantity, remove, ready, busy, canCheckout, pendingGuest = [], retry } = useCart();
+  const { lines, subtotal, count, setQuantity, remove, ready, busy, canCheckout, isStaffPos = false, pendingGuest = [], retry } = useCart();
+  const isStaff = isStaffPos;
   const [loginOpen, setLoginOpen] = useState(false);
   return (
     <section className="cart-board">
@@ -88,11 +89,11 @@ export function CartPageBody() {
             <div className="cart-summary-total"><dt>Tạm tính</dt><dd>{formatPrice(subtotal)}đ</dd></div>
           </dl>
           {lines.length > 0 ? (
-            <button type="button" disabled={canCheckout === false} className="cart-order" onClick={() => setLoginOpen(true)}>Xác nhận mua</button>
+            <button type="button" disabled={canCheckout === false} className="cart-order" onClick={() => setLoginOpen(true)}>{isStaff ? "Đặt tại quầy" : "Xác nhận mua"}</button>
           ) : (
-            <button type="button" className="cart-order" disabled>Xác nhận mua</button>
+            <button type="button" className="cart-order" disabled>{isStaff ? "Đặt tại quầy" : "Xác nhận mua"}</button>
           )}
-          <Link className="cart-more" href="/menu">Mua thêm món</Link>
+          <Link className="cart-more" href="/menu">{isStaff ? "Chọn thêm món" : "Mua thêm món"}</Link>
         </aside>}
       </div>
       {loginOpen && <PurchaseFlow onClose={() => setLoginOpen(false)} />}

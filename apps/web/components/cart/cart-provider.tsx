@@ -13,7 +13,14 @@ import { CenteredDialog } from "../ui/centered-dialog";
 import { useAuthUser, useAuthStatus, refreshAuth } from "../../lib/auth-store";
 import { authError } from "../../services/auth.service";
 import { getStore } from "../../services/store.service";
-import { cartPayload as payload, mergeGuestCart, guestMergePending, executeCartCommand, pendingCartCommand, type ServerCart } from "../../services/cart.service";
+import {
+  cartPayload as payload,
+  mergeGuestCart,
+  guestMergePending,
+  executeCartCommand,
+  pendingCartCommand,
+  type ServerCart,
+} from "../../services/cart.service";
 import { parsePrice } from "../../lib/format-price";
 import {
   addConfiguredLine,
@@ -25,8 +32,26 @@ import {
   type CartLine,
   type NewCartLine,
 } from "../../lib/cart-config";
+
 const STORAGE_KEY = "brewlite-config-cart";
+export const STAFF_CART_STORAGE_KEY = "brewlite-staff-pos-cart";
 const EMPTY: CartLine[] = [];
+
+type StaffCartRecord = { ownerId: string; lines: CartLine[] };
+const EMPTY_STAFF: StaffCartRecord = { ownerId: "", lines: EMPTY };
+
+function isCartLine(item: unknown): item is CartLine {
+  const i = item as Partial<CartLine> | null;
+  return Boolean(
+    i &&
+      typeof i.key === "string" &&
+      typeof i.productId === "string" &&
+      typeof i.quantity === "number" &&
+      typeof i.unitPrice === "number" &&
+      Array.isArray(i.toppings),
+  );
+}
+
 let snapshot: CartLine[] = EMPTY;
 let hydrated = false;
 const listeners = new Set<() => void>();
@@ -43,16 +68,7 @@ function getSnapshot() {
       const parsed: unknown = JSON.parse(
         sessionStorage.getItem(STORAGE_KEY) || "[]",
       );
-      if (Array.isArray(parsed))
-        snapshot = parsed.filter(
-          (i): i is CartLine =>
-            i &&
-            typeof i.key === "string" &&
-            typeof i.productId === "string" &&
-            typeof i.quantity === "number" &&
-            typeof i.unitPrice === "number" &&
-            Array.isArray(i.toppings),
-        );
+      if (Array.isArray(parsed)) snapshot = parsed.filter(isCartLine);
     } catch {
       snapshot = EMPTY;
     }
@@ -64,18 +80,69 @@ function commit(lines: CartLine[]) {
   snapshot = lines.length ? lines : EMPTY;
   listeners.forEach((fn) => fn());
 }
+
+let staffSnapshot: StaffCartRecord = EMPTY_STAFF;
+let staffHydrated = false;
+const staffListeners = new Set<() => void>();
+function subscribeStaff(fn: () => void) {
+  staffListeners.add(fn);
+  return () => {
+    staffListeners.delete(fn);
+  };
+}
+function getStaffSnapshot(): StaffCartRecord {
+  if (!staffHydrated) {
+    staffHydrated = true;
+    try {
+      const parsed: unknown = JSON.parse(
+        sessionStorage.getItem(STAFF_CART_STORAGE_KEY) || "null",
+      );
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        typeof (parsed as StaffCartRecord).ownerId === "string" &&
+        Array.isArray((parsed as StaffCartRecord).lines)
+      ) {
+        const valid = (parsed as StaffCartRecord).lines.filter(isCartLine);
+        staffSnapshot = {
+          ownerId: (parsed as StaffCartRecord).ownerId,
+          lines: valid.length ? valid : EMPTY,
+        };
+      }
+    } catch {
+      staffSnapshot = EMPTY_STAFF;
+    }
+  }
+  return staffSnapshot;
+}
+function readStaffLines(ownerId: string): CartLine[] {
+  const record = getStaffSnapshot();
+  return record.ownerId === ownerId ? record.lines : EMPTY;
+}
+function commitStaff(ownerId: string, lines: CartLine[]) {
+  const record: StaffCartRecord = {
+    ownerId,
+    lines: lines.length ? lines : EMPTY,
+  };
+  sessionStorage.setItem(STAFF_CART_STORAGE_KEY, JSON.stringify(record));
+  staffSnapshot = record;
+  staffListeners.forEach((fn) => fn());
+}
+
 const cartLines = (cart: ServerCart): CartLine[] =>
   cart.items.map((i) => ({
     ...i,
     unitPrice: parsePrice(i.unitPrice),
     toppings: i.toppings.map((t) => ({ ...t, price: parsePrice(t.price) })),
   }));
+
 type Context = {
   lines: CartLine[];
   version: number;
   ready: boolean;
   busy: boolean;
   canCheckout: boolean;
+  isStaffPos?: boolean;
   pendingGuest: CartLine[];
   retry: () => void;
   count: number;
@@ -93,15 +160,22 @@ type Context = {
   remove: (key: string) => void;
   clear: () => void;
 };
+
 const CartContext = createContext<Context | null>(null);
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const local = useSyncExternalStore(subscribe, getSnapshot, () => EMPTY);
+  const staffRecord = useSyncExternalStore(
+    subscribeStaff,
+    getStaffSnapshot,
+    () => EMPTY_STAFF,
+  );
   const user = useAuthUser();
   const auth = useAuthStatus();
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const customer = user?.role === "CUSTOMER";
-  const cartReader = customer || user?.role === 'STAFF';
+  const staff = user?.role === "STAFF";
   const actor = user?.id;
   const [remote, setRemote] = useState<{
     userId: string;
@@ -114,53 +188,96 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [lastAdded, setLastAdded] = useState<NewCartLine | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<CartLine | null>(null);
   const serverCart =
-    cartReader && user && remote?.userId === user.id ? remote.cart : null;
+    customer && user && remote?.userId === user.id ? remote.cart : null;
+  const staffLines =
+    staff && actor && staffRecord.ownerId === actor ? staffRecord.lines : EMPTY;
   const lines = useMemo(
-    () => (user ? (serverCart ? cartLines(serverCart) : EMPTY) : local),
-    [user, serverCart, local],
+    () =>
+      customer
+        ? serverCart
+          ? cartLines(serverCart)
+          : EMPTY
+        : staff
+          ? staffLines
+          : user
+            ? EMPTY
+            : local,
+    [customer, staff, user, serverCart, staffLines, local],
   );
+
   async function reload() {
-    if (cartReader && user) {
+    if (customer && user) {
       const cart = await getStore<ServerCart>("/cart");
       setRemote({ userId: user.id, cart });
     }
   }
+
   useEffect(() => {
-    if (!cartReader || !actor) return;
+    if (!customer || !actor) return;
     const actorId = actor;
     let active = true;
     async function sync() {
       try {
-        const command = customer ? pendingCartCommand(actorId) : null;
-        let cart = command ? await executeCartCommand(actorId, command) : await getStore<ServerCart>("/cart");
+        const command = pendingCartCommand(actorId);
+        let cart = command
+          ? await executeCartCommand(actorId, command)
+          : await getStore<ServerCart>("/cart");
         if (!active) return;
-        setBusy(true); setRemote({ userId: actorId, cart });
-        if (customer) cart = await mergeGuestCart(actorId, cart, getSnapshot(), getSnapshot, commit);
+        setBusy(true);
+        setRemote({ userId: actorId, cart });
+        cart = await mergeGuestCart(
+          actorId,
+          cart,
+          getSnapshot(),
+          getSnapshot,
+          commit,
+        );
         if (active) {
           setRemote({ userId: actorId, cart });
           setSyncError("");
         }
       } catch (error) {
-        if (active) setSyncError(error instanceof Error && !('response' in error) ? error.message : authError(error));
-      } finally { if (active) setBusy(false); }
+        if (active)
+          setSyncError(
+            error instanceof Error && !("response" in error)
+              ? error.message
+              : authError(error),
+          );
+      } finally {
+        if (active) setBusy(false);
+      }
     }
     void sync();
     return () => {
       active = false;
     };
-  }, [customer, cartReader, actor, attempt]);
+  }, [customer, actor, attempt]);
+
   useEffect(() => {
-    if (!cartReader || !actor) return;
+    if (!customer || !actor) return;
     let active = true;
-    const sync = () => { void getStore<ServerCart>('/cart').then((cart) => { if (active) setRemote({ userId: actor, cart }); }).catch(() => { if (active) setSyncError('Không thể đồng bộ giỏ hàng. Vui lòng thử lại.'); }); };
-    window.addEventListener('brewlite:cart-updated', sync);
-    return () => { active = false; window.removeEventListener('brewlite:cart-updated', sync); };
-  }, [cartReader, actor]);
+    const sync = () => {
+      void getStore<ServerCart>("/cart")
+        .then((cart) => {
+          if (active) setRemote({ userId: actor, cart });
+        })
+        .catch(() => {
+          if (active) setSyncError("Không thể đồng bộ giỏ hàng. Vui lòng thử lại.");
+        });
+    };
+    window.addEventListener("brewlite:cart-updated", sync);
+    return () => {
+      active = false;
+      window.removeEventListener("brewlite:cart-updated", sync);
+    };
+  }, [customer, actor]);
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 8000);
     return () => clearTimeout(timer);
   }, [toast]);
+
   async function mutation(
     path: string,
     body: object,
@@ -171,21 +288,52 @@ export function CartProvider({ children }: { children: ReactNode }) {
         "Giỏ hàng chưa đồng bộ hoặc tài khoản không có quyền mua hàng.",
       );
     if (inFlight.current) throw new Error("Đang lưu giỏ hàng. Vui lòng chờ.");
-    if (pendingCartCommand(user.id)) throw new Error("Yêu cầu trước chưa được xác nhận. Hãy thử đồng bộ lại trước khi sửa tiếp.");
-    inFlight.current = true; setBusy(true);
+    if (pendingCartCommand(user.id))
+      throw new Error(
+        "Yêu cầu trước chưa được xác nhận. Hãy thử đồng bộ lại trước khi sửa tiếp.",
+      );
+    inFlight.current = true;
+    setBusy(true);
     try {
-      const cart = await executeCartCommand(user.id, { path, body: { ...body, expectedVersion: serverCart.version }, method, key: crypto.randomUUID() });
+      const cart = await executeCartCommand(user.id, {
+        path,
+        body: { ...body, expectedVersion: serverCart.version },
+        method,
+        key: crypto.randomUUID(),
+      });
       setRemote({ userId: user.id, cart });
-    } finally { inFlight.current = false; setBusy(false); }
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
   }
+
   const value: Context = {
     lines,
     version: serverCart?.version ?? 0,
-    ready: auth.ready && !auth.error && (!user || !!serverCart),
+    ready: auth.ready && !auth.error && (!customer || !!serverCart),
     busy,
-    canCheckout: (!user || customer) && auth.ready && !auth.error && !syncError && !busy && (!customer || !pendingCartCommand(user!.id)) && (!user || local.length === 0) && !!lines.length && lines.every((line) => !!line.sizeId && !line.requiresConfiguration && line.isValid !== false),
+    canCheckout:
+      (!user || customer || staff) &&
+      auth.ready &&
+      !auth.error &&
+      !syncError &&
+      !busy &&
+      (!customer || !pendingCartCommand(user!.id)) &&
+      (!customer || local.length === 0) &&
+      !!lines.length &&
+      lines.every(
+        (line) =>
+          !!line.sizeId && !line.requiresConfiguration && line.isValid !== false,
+      ),
+    isStaffPos: staff,
     pendingGuest: customer ? local : EMPTY,
-    retry: () => { setSyncError(""); void refreshAuth().then(() => setAttempt((a) => a + 1)).catch((error) => setSyncError(authError(error))); },
+    retry: () => {
+      setSyncError("");
+      void refreshAuth()
+        .then(() => setAttempt((a) => a + 1))
+        .catch((error) => setSyncError(authError(error)));
+    },
     reload,
     count: cartCount(lines),
     subtotal: cartSubtotal(lines),
@@ -197,18 +345,37 @@ export function CartProvider({ children }: { children: ReactNode }) {
     closeCart: () => setOpen(false),
     addLine: async (line) => {
       try {
-        if (!auth.ready || auth.error) throw new Error("Chưa kiểm tra được phiên đăng nhập. Vui lòng thử lại.");
-        if (user) await mutation("/cart/items", payload(line), "post");
-        else {
+        if (!auth.ready || auth.error)
+          throw new Error("Chưa kiểm tra được phiên đăng nhập. Vui lòng thử lại.");
+        if (staff && actor) {
+          const next = addConfiguredLine(readStaffLines(actor), line);
+          commitStaff(actor, next.lines);
+          if (next.capped) {
+            setToast(null);
+            setSyncError(
+              "Mỗi cấu hình tối đa 20 ly. Giỏ được giữ nguyên, không cắt số lượng.",
+            );
+            return;
+          }
+        } else if (user) {
+          await mutation("/cart/items", payload(line), "post");
+        } else {
           const next = addConfiguredLine(getSnapshot(), line);
           commit(next.lines);
           if (next.capped) {
-            setToast(null); setSyncError("Mỗi cấu hình tối đa 20 ly. Giỏ được giữ nguyên, không cắt số lượng.");
+            setToast(null);
+            setSyncError(
+              "Mỗi cấu hình tối đa 20 ly. Giỏ được giữ nguyên, không cắt số lượng.",
+            );
             return;
           }
         }
         setLastAdded(line);
-        setToast("Thêm vào giỏ hàng thành công");
+        setToast(
+          staff
+            ? "Đã thêm vào giỏ tại quầy"
+            : "Thêm vào giỏ hàng thành công",
+        );
       } catch (error) {
         setSyncError(authError(error));
       }
@@ -216,12 +383,22 @@ export function CartProvider({ children }: { children: ReactNode }) {
     updateLine: async (key, line) => {
       try {
         if (key.startsWith("guest:")) {
-          if (guestMergePending()) throw new Error("Cần xác nhận kết quả đồng bộ trước khi chỉnh bản nháp. Hãy thử đồng bộ lại.");
+          if (guestMergePending())
+            throw new Error(
+              "Cần xác nhận kết quả đồng bộ trước khi chỉnh bản nháp. Hãy thử đồng bộ lại.",
+            );
           const next = replaceConfiguredLine(getSnapshot(), key.slice(6), line);
-          if (!next) return false; commit(next); return true;
+          if (!next) return false;
+          commit(next);
+          return true;
         }
-        if (user) await mutation(`/cart/items/${key}`, payload(line), "patch");
-        else {
+        if (staff && actor) {
+          const next = replaceConfiguredLine(readStaffLines(actor), key, line);
+          if (!next) return false;
+          commitStaff(actor, next);
+        } else if (user) {
+          await mutation(`/cart/items/${key}`, payload(line), "patch");
+        } else {
           const next = replaceConfiguredLine(getSnapshot(), key, line);
           if (!next) return false;
           commit(next);
@@ -236,7 +413,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
     },
     setQuantity: (key, quantity) => {
       if (!Number.isInteger(quantity)) return;
-      if (quantity > 20) { setSyncError("Mỗi cấu hình tối đa 20 ly; số lượng không bị cắt ngầm."); return; }
+      if (quantity > 20) {
+        setSyncError("Mỗi cấu hình tối đa 20 ly; số lượng không bị cắt ngầm.");
+        return;
+      }
       const line = lines.find((i) => i.key === key);
       if (!line) return;
       if (quantity < 1) {
@@ -244,35 +424,50 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setPendingRemoval(line);
         return;
       }
-      if (user)
+      if (staff && actor) {
+        commitStaff(actor, changeLineQuantity(readStaffLines(actor), key, quantity));
+      } else if (user) {
         void mutation(
           `/cart/items/${key}`,
           payload({ ...line, quantity }),
           "patch",
         ).catch((error) => setSyncError(authError(error)));
-      else commit(changeLineQuantity(lines, key, quantity));
+      } else {
+        commit(changeLineQuantity(lines, key, quantity));
+      }
     },
     remove: (key) => {
       setToast(null);
-      const line = key.startsWith("guest:") ? getSnapshot().find((i) => i.key === key.slice(6)) : lines.find((i) => i.key === key);
+      const line = key.startsWith("guest:")
+        ? getSnapshot().find((i) => i.key === key.slice(6))
+        : lines.find((i) => i.key === key);
       setPendingRemoval(line ? { ...line, key } : null);
     },
     clear: () => {
       if (!user) commit([]);
+      else if (staff && actor) commitStaff(actor, []);
       else setSyncError("Hãy xóa từng món để xác nhận thay đổi giỏ hàng.");
     },
   };
+
   return (
     <CartContext.Provider value={value}>
       {children}
-      {auth.error && <p className="notice notice-warn" role="alert">{auth.error} <button type="button" onClick={value.retry}>Thử lại</button></p>}
+      {auth.error && (
+        <p className="notice notice-warn" role="alert">
+          {auth.error}{" "}
+          <button type="button" onClick={value.retry}>
+            Thử lại
+          </button>
+        </p>
+      )}
       {syncError && (
         <CenteredDialog
           label="Đồng bộ giỏ hàng"
           onClose={() => setSyncError("")}
         >
           <p role="alert">{syncError || auth.error}</p>
-          <p>Giỏ khách được giữ lại khi gộp thất bại.</p>
+          {!staff && <p>Giỏ khách được giữ lại khi gộp thất bại.</p>}
           <button
             onClick={() => {
               setSyncError("");
@@ -300,15 +495,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
                 className="notice-primary"
                 onClick={() => {
                   if (pendingRemoval.key.startsWith("guest:")) {
-                    if (guestMergePending()) { setSyncError("Hãy thử đồng bộ lại để xác nhận yêu cầu trước trước khi bỏ bản nháp."); return; }
+                    if (guestMergePending()) {
+                      setSyncError(
+                        "Hãy thử đồng bộ lại để xác nhận yêu cầu trước trước khi bỏ bản nháp.",
+                      );
+                      return;
+                    }
                     commit(removeLine(getSnapshot(), pendingRemoval.key.slice(6)));
-                  } else if (user)
+                  } else if (staff && actor) {
+                    commitStaff(
+                      actor,
+                      removeLine(readStaffLines(actor), pendingRemoval.key),
+                    );
+                  } else if (user) {
                     void mutation(
                       `/cart/items/${pendingRemoval.key}`,
                       {},
                       "delete",
                     ).catch((error) => setSyncError(authError(error)));
-                  else commit(removeLine(getSnapshot(), pendingRemoval.key));
+                  } else {
+                    commit(removeLine(getSnapshot(), pendingRemoval.key));
+                  }
                   setPendingRemoval(null);
                 }}
               >
@@ -321,6 +528,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     </CartContext.Provider>
   );
 }
+
 export function useCart() {
   const value = useContext(CartContext);
   if (!value) throw new Error("useCart must be used within CartProvider");

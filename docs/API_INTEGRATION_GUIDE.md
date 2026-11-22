@@ -26,11 +26,11 @@ npm run start:dev
 
 ### Dữ liệu tài khoản mẫu để test:
 
-| Vai trò                   | Email đăng nhập        | Số điện thoại | Mật khẩu chung | Điểm thưởng |
-| ------------------------- | ---------------------- | ------------- | -------------- | ----------- |
-| **Quản lý (MANAGER)**     | `admin@brewlite.vn`    | `0901234567`  | `admin123`     | -           |
-| **Nhân viên (STAFF)**     | `staff@brewlite.vn`    | `0909876543`  | `admin123`     | -           |
-| **Khách hàng (CUSTOMER)** | `customer@brewlite.vn` | `0987654321`  | `admin123`     | 120 điểm    |
+| Vai trò                   | Email đăng nhập        | Mật khẩu chung | Điểm thưởng |
+| ------------------------- | ---------------------- | -------------- | ----------- |
+| **Quản lý (MANAGER)**     | `admin@brewlite.vn`    | `admin123`     | -           |
+| **Nhân viên (STAFF)**     | `staff@brewlite.vn`    | `admin123`     | -           |
+| **Khách hàng (CUSTOMER)** | `customer@brewlite.vn` | `admin123`     | 120 điểm    |
 
 ### Mã giảm giá mẫu (Voucher):
 
@@ -188,7 +188,22 @@ npm run start:dev
 
 ## 4. Lộ trình tích hợp các API tiếp theo
 
-1. **Auth:** `POST /api/auth/register`, `POST /api/auth/login` (Hỗ trợ đăng nhập bằng Số điện thoại + Mật khẩu, trả về `{ access_token, user }`).
+### Tìm kiếm tài khoản quản trị
+
+`GET /api/admin/users/search?page=1&pageSize=25&query=example&role=CUSTOMER`
+chỉ dành cho ADMIN. Tìm theo họ tên hoặc email (không phân biệt hoa/thường),
+lọc vai trò trước khi phân trang trên toàn bộ tài khoản. `role` có thể bỏ trống
+hoặc là `CUSTOMER`, `STAFF`, `ADMIN`. `page` bắt đầu từ 1; `pageSize` mặc định 25,
+tối đa 100. Kết quả: `{ items, total, page, pageSize, totalPages }`.
+Mỗi item chỉ gồm thông tin hồ sơ công khai với quản trị viên, không có mật khẩu/token.
+Trang Tài khoản dùng endpoint này; `GET /api/admin/users` cũ vẫn chỉ trả tối đa
+100 tài khoản gần nhất để tương thích.
+
+Frontend chỉ xóa trạng thái đăng nhập khi refresh trả 401. Timeout, lỗi mạng,
+429 và 5xx được chuyển tiếp để người dùng có thể thử lại. Sau khi refresh thành công,
+lỗi của request chạy lại được giữ nguyên (ví dụ 409 khi xung đột tồn kho).
+
+1. **Auth:** `POST /api/auth/register`, `POST /api/auth/login` (Đăng ký và đăng nhập bằng email + mật khẩu; phiên đăng nhập được lưu trong cookie HttpOnly).
 2. **Đặt hàng (Checkout):** `POST /api/orders` (Tạo đơn hàng, trừ kho, tạo transaction thanh toán).
 3. **Thanh toán:** `POST /api/orders/:id/payments` (Mô phỏng thanh toán hoặc tạo URL Sandbox VNPay).
 4. **Staff & Admin:**

@@ -8,6 +8,8 @@ import { CommerceService } from './commerce.service';
 import { StoreAdminService } from './admin.service';
 import { StoreAdminController } from './admin.controller';
 import { ProductImageController } from './product-image.controller';
+import { PosService } from './pos.service';
+import { StaffPosController } from './pos.controller';
 import {
   ConfiguredCartController,
   OrdersController,
@@ -23,9 +25,10 @@ import {
     OrdersController,
     PaymentsController,
     StaffOrdersController,
+    StaffPosController,
     ProductImageController,
     StoreAdminController,
   ],
-  providers: [CommerceService, StoreAdminService, VNPayService],
+  providers: [CommerceService, StoreAdminService, VNPayService, PosService],
 })
 export class CommerceModule {}

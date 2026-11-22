@@ -22,7 +22,8 @@ export function SiteFrame({ children }: { children: ReactNode }) {
 
 function SiteChrome({ children }: { children: ReactNode }) {
   const [loginOpen, setLoginOpen] = useState(false);
-  const { isOpen, closeCart, subtotal, count, toast, lines, lastAdded, dismissToast } = useCart();
+  const { isOpen, closeCart, subtotal, count, toast, lines, lastAdded, dismissToast, isStaffPos = false } = useCart();
+  const isStaff = isStaffPos;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -55,7 +56,7 @@ function SiteChrome({ children }: { children: ReactNode }) {
             onClick={(event) => event.stopPropagation()}
           >
             <header>
-              <h2 id="bag-title" style={{ margin: 0, fontSize: "1.35rem" }}>Giỏ của bạn</h2>
+              <h2 id="bag-title" style={{ margin: 0, fontSize: "1.35rem" }}>{isStaff ? "Giỏ tại quầy" : "Giỏ của bạn"}</h2>
               <button type="button" className="cart-remove" aria-label="Đóng giỏ hàng" onClick={closeCart}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
               </button>
@@ -66,9 +67,9 @@ function SiteChrome({ children }: { children: ReactNode }) {
             <footer>
               <div className="cart-total"><span>Tạm tính</span><span className="amt">{formatPrice(subtotal)}đ</span></div>
               {lines.length > 0 ? (
-                <button type="button" className="btn btn-espresso btn-lg" style={{ width: "100%" }} onClick={() => { closeCart(); setLoginOpen(true); }}>Xác nhận mua</button>
+                <button type="button" className="btn btn-espresso btn-lg" style={{ width: "100%" }} onClick={() => { closeCart(); setLoginOpen(true); }}>{isStaff ? "Đặt tại quầy" : "Xác nhận mua"}</button>
               ) : (
-                <button type="button" className="btn btn-espresso btn-lg" style={{ width: "100%" }} disabled>Xác nhận mua</button>
+                <button type="button" className="btn btn-espresso btn-lg" style={{ width: "100%" }} disabled>{isStaff ? "Đặt tại quầy" : "Xác nhận mua"}</button>
               )}
               <button type="button" className="btn btn-ghost" style={{ width: "100%", marginTop: ".5rem" }} onClick={closeCart}>Tiếp tục chọn món</button>
               <p className="visually-hidden">{count} món</p>
@@ -85,9 +86,9 @@ function SiteChrome({ children }: { children: ReactNode }) {
           <ProductImage key={lastAdded.imageUrl} url={lastAdded.imageUrl} name={lastAdded.name} />
           <div><strong>{lastAdded.name}</strong><p>{lastAdded.sizeName} · {lastAdded.quantity} ly</p></div>
         </div>}
-        <div className="cart-success-total"><span>Giỏ hàng hiện có</span><div><strong>{formatPrice(subtotal)}đ</strong><p>({count}) sản phẩm</p></div></div>
+        <div className="cart-success-total"><span>{isStaff ? "Giỏ tại quầy" : "Giỏ hàng hiện có"}</span><div><strong>{formatPrice(subtotal)}đ</strong><p>({count}) sản phẩm</p></div></div>
         <div className="cart-success-actions">
-          <button type="button" onClick={() => { dismissToast(); closeCart(); setLoginOpen(true); }}>Xác nhận mua</button>
+          <button type="button" onClick={() => { dismissToast(); closeCart(); setLoginOpen(true); }}>{isStaff ? "Đặt tại quầy" : "Xác nhận mua"}</button>
           <Link href="/cart" className="cart-success-view" onClick={() => { dismissToast(); closeCart(); }}>Xem giỏ hàng</Link>
         </div>
       </div></CenteredDialog>}

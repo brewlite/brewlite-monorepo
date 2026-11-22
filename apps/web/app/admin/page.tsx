@@ -1,17 +1,23 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { SiteFrame } from "../../components/layout/site-frame";
 import { getStore, sendStore, type Order } from "../../services/store.service";
 import { authError } from "../../services/auth.service";
+import { refreshAuth, useAuthStatus, useAuthUser } from "../../lib/auth-store";
 import { formatPrice } from "../../lib/format-price";
 import { normalizeSearch } from "../../lib/normalize-search";
 import { AdminOverview, type OverviewProduct, type OverviewSize } from '../../components/admin/admin-overview';
+import { AdminStatistics, type AdminStatisticsData } from '../../components/admin/admin-statistics';
 import { CenteredDialog } from '../../components/ui/centered-dialog';
 import { InventoryTable, Pencil } from '../../components/admin/inventory-table';
 import { PromotionsTable } from '../../components/admin/promotions-table';
 import { CatalogManagement } from '../../components/admin/catalog-management';
+import { AccountManagement } from '../../components/admin/account-management';
 import { AdminSidebar } from '../../components/admin/admin-sidebar';
 import { OrderMonitor } from '../../components/admin/order-monitor';
+import { CashReconciliation } from '../../components/admin/cash-reconciliation';
+import { getAdminCashShifts, type AdminCashShiftsResponse } from '../../services/pos.service';
 import { ProductAvailability } from '../../components/admin/product-availability';
 import { ProductImagePicker } from '../../components/admin/product-image-picker';
 import { ProductCategoryFilter, filterAdminProducts } from '../../components/admin/product-category-filter';
@@ -60,7 +66,7 @@ const fields: Record<string, Field[]> = {
     { key: "minOrderValue", label: "Đơn tối thiểu (VND)", type: "number" },
     {
       key: "maxDiscount",
-      label: "Giảm tối đa (VND), bỏ trống nếu không có",
+      label: "Giảm tối đa (VND)",
       type: "number",
     },
     { key: "usageLimit", label: "Giới hạn lượt dùng", type: "number" },
@@ -83,6 +89,7 @@ const names: Record<string, string> = {
   promotions: "Mã giảm giá",
   users: "Tài khoản",
   orders: "Giám sát đơn",
+  cashShifts: "Quỹ tiền mặt",
 };
 const primaryLabels: Record<string, string> = { products: 'Tên sản phẩm', categories: 'Tên danh mục', sizes: 'Tên Size', toppings: 'Tên topping', promotions: 'Mã giảm giá', users: 'Email' };
 function display(v: unknown) {
@@ -95,15 +102,21 @@ function display(v: unknown) {
       : "—";
 }
 export default function AdminPage() {
+  const authUser = useAuthUser();
+  const authStatus = useAuthStatus();
   const [kind, setKind] = useState("dashboard");
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [loadingHeight, setLoadingHeight] = useState(0);
   const [rows, setRows] = useState<Row[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [cashShifts, setCashShifts] = useState<AdminCashShiftsResponse | null>(null);
+  const [statistics, setStatistics] = useState<AdminStatisticsData | null>(null);
   const [dashboard, setDashboard] = useState<{
     simulatedRevenue: string;
     paidOrders: number;
     products: number;
+    pendingCashShifts?: number;
+    pendingCashTotal?: string;
     label: string;
   } | null>(null);
   const [lookups, setLookups] = useState<Record<string, Row[]>>({});
@@ -138,9 +151,10 @@ export default function AdminPage() {
   const productRows = kind === 'products' ? filterAdminProducts(rows, lookups.categories ?? [], categoryFilter, search) : [];
   useEffect(() => {
     let active = true;
+    if (!authStatus.ready || authStatus.error || authUser?.role !== "ADMIN") return () => { active = false; };
     async function load() {
       try {
-        if (kind === "dashboard" || kind === "statistics") {
+        if (kind === "dashboard") {
           const [d, products, sizes, recentOrders] = await Promise.all([
             getStore<NonNullable<typeof dashboard>>("/admin/dashboard"),
             getStore<OverviewProduct[]>('/admin/products'),
@@ -148,11 +162,17 @@ export default function AdminPage() {
             getStore<Order[]>('/admin/orders'),
           ]);
           if (active) { setDashboard(d); setOverviewDetails({ products, sizes, orders: recentOrders, now: Date.now() }); }
+        } else if (kind === "statistics") {
+          const s = await getStore<AdminStatisticsData>("/admin/statistics");
+          if (active) setStatistics(s);
         } else if (kind === "orders") {
           const d = await getStore<Order[]>("/admin/orders");
           if (active) setOrders(d);
+        } else if (kind === "cashShifts") {
+          const d = await getAdminCashShifts();
+          if (active) setCashShifts(d);
         } else {
-          const d = await getStore<Row[]>(`/admin/${kind}`);
+          const d = kind === "users" ? [] : await getStore<Row[]>(`/admin/${kind}`);
           const refs = await Promise.all(
             (fields[kind] || [])
               .filter((f) => f.source)
@@ -181,7 +201,7 @@ export default function AdminPage() {
     return () => {
       active = false;
     };
-  }, [kind, attempt]);
+  }, [authStatus.ready, authStatus.error, authUser?.id, authUser?.role, kind, attempt]);
   function edit(row: Row | null) {
     setImageFile(null);
     setFormError('');
@@ -248,22 +268,44 @@ export default function AdminPage() {
           <AdminSidebar current={kind} onNavigate={navigate} />
           <div ref={workspaceRef} className="admin-main-panel" style={loading && loadingHeight ? { minHeight: `max(calc(100svh - 180px), ${loadingHeight}px)` } : undefined}>
           <header className="admin-page-heading"><h1>{names[kind]}</h1><button className="admin-refresh" aria-label="Làm mới" title="Làm mới" disabled={loading} onClick={() => { setLoadingHeight(workspaceRef.current?.getBoundingClientRect().height ?? 0); setLoading(true); setAttempt((value) => value + 1); }}>↻</button></header>
-          {loading && (
-            <p role="status">Đang tải dữ liệu và kiểm tra quyền ADMIN…</p>
+          {!authStatus.ready && !authStatus.error && (
+            <p role="status">Đang kiểm tra phiên đăng nhập…</p>
           )}
-          {error && (
+          {authStatus.error && (
+            <p role="alert">
+              Không thể kiểm tra phiên đăng nhập.{" "}
+              <button type="button" onClick={() => void refreshAuth().catch(() => {})}>Thử lại</button>
+            </p>
+          )}
+          {authStatus.ready && !authStatus.error && !authUser && (
+            <p role="alert">
+              Vui lòng đăng nhập để truy cập khu vực quản trị.{" "}
+              <Link href="/login">Đăng nhập</Link>
+            </p>
+          )}
+          {authStatus.ready && !authStatus.error && authUser && authUser.role !== "ADMIN" && (
+            <p role="alert">Tài khoản hiện tại không có quyền truy cập khu vực quản trị.</p>
+          )}
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && loading && (
+            <p role="status">Đang tải…</p>
+          )}
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && error && (
             <p role="alert">
               {error}{" "}
               <button onClick={() => setAttempt((a) => a + 1)}>Thử lại</button>
             </p>
           )}
-          {!loading && !error && (kind === "dashboard" || kind === "statistics") && dashboard && (
-            <AdminOverview data={dashboard} {...overviewDetails} onNavigate={navigate} mode={kind === "statistics" ? "statistics" : "summary"} />
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && kind === "dashboard" && dashboard && (
+            <AdminOverview data={dashboard} {...overviewDetails} onNavigate={navigate} mode="summary" />
           )}
-          {!loading && !error && fields[kind] && (
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && kind === "statistics" && statistics && (
+            <AdminStatistics data={statistics} />
+          )}
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && fields[kind] && (
             <>
               {kind === "promotions" && <PromotionsTable rows={rows} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
-              {['categories', 'toppings', 'users'].includes(kind) && <CatalogManagement key={kind} kind={kind as 'categories' | 'toppings' | 'users'} rows={rows} products={lookups.products ?? []} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
+              {kind === 'users' && <AccountManagement onEdit={edit} refreshVersion={attempt} />}
+              {['categories', 'toppings'].includes(kind) && <CatalogManagement key={kind} kind={kind as 'categories' | 'toppings'} rows={rows} products={lookups.products ?? []} onEdit={edit} onRefresh={() => setAttempt((value) => value + 1)} />}
               {kind === 'products' && <div className="admin-search-bar">
                 <button className="admin-add-button" onClick={() => edit(null)}>Thêm mới</button>
                 <div className="admin-search-field">
@@ -421,8 +463,11 @@ export default function AdminPage() {
             </form>
             </CenteredDialog>
           )}
-          {!loading && !error && kind === "orders" && (
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && kind === "orders" && (
             <OrderMonitor orders={orders} />
+          )}
+          {authStatus.ready && !authStatus.error && authUser?.role === "ADMIN" && !loading && !error && kind === "cashShifts" && cashShifts && (
+            <CashReconciliation data={cashShifts} onRefresh={() => setAttempt((value) => value + 1)} />
           )}
           {formConfirmation && <CenteredDialog label={formConfirmation.title} className="admin-confirm-dialog" onClose={() => setFormConfirmation(null)}><h2>{formConfirmation.title}</h2><p>{formConfirmation.description}</p><div className="store-actions"><button onClick={() => setFormConfirmation(null)}>Hủy</button><button onClick={() => void save({ preventDefault() {} }, true)}>{formConfirmation.action}</button></div></CenteredDialog>}
           </div>

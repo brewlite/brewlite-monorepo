@@ -3,6 +3,9 @@ import { apiUrl } from "./product.service";
 export type Order = {
   id: string;
   orderCode: string;
+  channel?: "CUSTOMER_APP" | "COUNTER_POS";
+  guestLabel?: string | null;
+  createdByStaff?: { id: string; fullName: string; email: string } | null;
   status: string;
   version: number;
   finalTotal: string;
@@ -14,6 +17,7 @@ export type Order = {
   note?: string | null;
   createdAt: string;
   expiresAt: string | null;
+  user?: { id: string; fullName: string; email: string } | null;
   items: {
     id: string;
     productName: string;
@@ -24,8 +28,8 @@ export type Order = {
     lineTotal: string;
     toppings: { toppingName: string; price: string }[];
   }[];
-  payments: { id: string; status: string; method: string; amount: string; createdAt?: string; paidAt?: string | null; resolvedAt?: string | null; attemptNumber?: number | null; providerPaymentId?: string | null; refund?: { id: string; provider: string; status: "REQUESTED" | "PENDING" | "SUCCESS" | "FAILED" | "UNKNOWN"; amount: string; resolvedAt: string | null } | null }[];
-  history: { fromStatus?: string | null; toStatus: string; actorId?: string | null; orderVersion?: number; createdAt: string }[];
+  payments: { id: string; status: string; method: string; amount: string; createdAt?: string; paidAt?: string | null; resolvedAt?: string | null; attemptNumber?: number | null; providerPaymentId?: string | null; cashTendered?: string | null; changeGiven?: string | null; refund?: { id: string; provider: string; status: "REQUESTED" | "PENDING" | "SUCCESS" | "FAILED" | "UNKNOWN"; amount: string; reason?: string | null; resolvedAt: string | null } | null }[];
+  history: { fromStatus?: string | null; toStatus: string; actorId?: string | null; actor?: { id: string; fullName: string; email: string; role: string } | null; orderVersion?: number; createdAt: string }[];
 };
 export async function getStore<T>(path: string) {
   return (await authHttp.get<T>(apiUrl(path))).data;

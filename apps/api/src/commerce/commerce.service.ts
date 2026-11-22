@@ -32,6 +32,18 @@ const orderInclude = {
   payments: { include: { refund: true } },
   history: { orderBy: { orderVersion: 'asc' as const } },
 };
+const adminOrderInclude = {
+  ...orderInclude,
+  user: { select: { id: true, fullName: true, email: true } },
+  history: {
+    include: {
+      actor: {
+        select: { id: true, fullName: true, email: true, role: true },
+      },
+    },
+    orderBy: { orderVersion: 'asc' as const },
+  },
+};
 function fail(code: string, message: string, status = 400): never {
   const body = { code, message };
   if (status === 409) throw new ConflictException(body);
@@ -99,7 +111,7 @@ function json(value: unknown): Prisma.InputJsonValue {
 export class CommerceService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private reconciliationRunning = false;
-  private readonly inquiries = new Map<string, { at: number; attempts: number }>();
+  private readonly inquiries = new Map<string, number>();
   constructor(
     private readonly db: PrismaService,
     private readonly inventory: InventoryService,
@@ -254,7 +266,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     const after = subtotal.minus(discount);
     const maxPoints = D.min(
       user.loyaltyPoints - user.reservedPoints + excludeHeldPoints,
-      after.times('.2').div(100).floor(),
+      after.times('.5').div(100).floor(),
     ).toNumber();
     if (
       !Number.isInteger(pointsUsed) ||
@@ -263,7 +275,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     )
       fail(
         'POINTS_EXCEED_CAP',
-        'Điểm vượt số dư khả dụng hoặc giới hạn 20%.',
+        'Điểm vượt số dư khả dụng hoặc giới hạn 50%.',
         422,
       );
     const pointsDiscount = new D(pointsUsed).times(100);
@@ -693,6 +705,27 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       },
       orderBy: { createdAt: queue ? 'asc' : 'desc' },
       take: 100,
+      include: all ? adminOrderInclude : orderInclude,
+    });
+  }
+  async staffTodayHistory(nowMs = Date.now()) {
+    const vnOffsetMs = 7 * 60 * 60 * 1000;
+    const vnNow = new Date(nowMs + vnOffsetMs);
+    const startOfVnDayUtc = new Date(
+      Date.UTC(
+        vnNow.getUTCFullYear(),
+        vnNow.getUTCMonth(),
+        vnNow.getUTCDate(),
+      ) - vnOffsetMs,
+    );
+    return this.db.order.findMany({
+      where: {
+        isLegacy: false,
+        status: { in: ['COMPLETED', 'CANCELLED'] },
+        updatedAt: { gte: startOfVnDayUtc },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
       include: orderInclude,
     });
   }
@@ -700,6 +733,14 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     const o = await this.db.order.findFirst({
       where: { id, isLegacy: false, ...(userId ? { userId } : {}) },
       include: orderInclude,
+    });
+    if (!o) fail('NOT_FOUND', 'Không tìm thấy đơn.', 404);
+    return o;
+  }
+  async adminOrder(id: string) {
+    const o = await this.db.order.findFirst({
+      where: { id, isLegacy: false },
+      include: adminOrderInclude,
     });
     if (!o) fail('NOT_FOUND', 'Không tìm thấy đơn.', 404);
     return o;
@@ -1064,13 +1105,47 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       });
     });
   }
+  private async settleVNPayParams(paymentId: string, params: VNParams, source: 'ipn' | 'return') {
+    const outcome = this.vnpay.outcome(params);
+    const transactionStatus = params.vnp_TransactionStatus || 'none';
+    const transactionRef = /^[1-9]\d{0,14}$/.test(params.vnp_TransactionNo ?? '') ? params.vnp_TransactionNo : undefined;
+    const metadata: VNParams = { source, responseCode: params.vnp_ResponseCode, transactionStatus, merchant: params.vnp_TmnCode, ...(params.vnp_PayDate ? { payDate: params.vnp_PayDate } : {}) };
+    const event = `vnpay:${params.vnp_TxnRef}:${params.vnp_TransactionNo || 'none'}:${params.vnp_ResponseCode}:${transactionStatus}`;
+    const result = await this.settleVerified(paymentId, outcome, event, transactionRef, metadata, vnParseDate(params.vnp_PayDate));
+    return { outcome, result };
+  }
   async vnpayReturn(query: Record<string, unknown>) {
     const params = this.vnpay.verify(query);
-    if (!params) return null;
+    if (!params) {
+      this.vnpay.logReturn('INVALID_SIGNATURE_OR_PARAMS');
+      return null;
+    }
     const p = await this.db.payment.findUnique({ where: { providerPaymentId: `vnpay:${params.vnp_TxnRef}` } });
-    if (!p || !p.amount.times(100).equals(params.vnp_Amount)) return null;
-    // Browser Return is navigation only; IPN is the settlement authority.
+    if (!p || !p.amount.times(100).equals(params.vnp_Amount)) {
+      this.vnpay.logReturn(p ? 'AMOUNT_MISMATCH' : 'PAYMENT_NOT_FOUND', params);
+      return null;
+    }
+    // Browser Return defaults to navigation only (IPN is the settlement authority).
+    // Opt-in VNPAY_SETTLE_ON_RETURN=true settles via the same HMAC-SHA512 verified
+    // payload and idempotent event ID when IPN cannot reach localhost / Sandbox QueryDr fails.
+    if (process.env.VNPAY_SETTLE_ON_RETURN === 'true') {
+      try {
+        const { outcome } = await this.settleVNPayParams(p.id, params, 'return');
+        this.vnpay.logReturn(`SETTLED_${outcome}`, params);
+      } catch {
+        this.vnpay.logReturn('SETTLE_ERROR', params);
+      }
+    } else {
+      this.vnpay.logReturn('NAVIGATION_ONLY', params);
+    }
     return p.id;
+  }
+  async vnpayReturnPath(paymentId: string): Promise<string> {
+    const p = await this.db.payment.findUnique({
+      where: { id: paymentId },
+      select: { order: { select: { channel: true } } },
+    });
+    return p?.order.channel === 'COUNTER_POS' ? '/staff/pos' : '/payments/result';
   }
   async vnpayIpn(query: Record<string, unknown>) {
     let verifiedReference: string | undefined;
@@ -1082,10 +1157,7 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
       const p = await this.db.payment.findUnique({ where: { providerPaymentId: `vnpay:${params.vnp_TxnRef}` } });
       if (!p) return reply('01', 'Payment not found');
       if (!p.amount.times(100).equals(params.vnp_Amount)) return reply('04', 'Invalid amount');
-      const outcome = this.vnpay.outcome(params);
-      const metadata: VNParams = { responseCode: params.vnp_ResponseCode, transactionStatus: params.vnp_TransactionStatus, merchant: params.vnp_TmnCode, ...(params.vnp_PayDate ? { payDate: params.vnp_PayDate } : {}) };
-      const event = `vnpay:${params.vnp_TxnRef}:${params.vnp_TransactionNo ?? 'none'}:${params.vnp_ResponseCode}:${params.vnp_TransactionStatus}`;
-      const result = await this.settleVerified(p.id, outcome, event, params.vnp_TransactionNo || undefined, metadata, vnParseDate(params.vnp_PayDate));
+      const { outcome, result } = await this.settleVNPayParams(p.id, params, 'ipn');
       if (result.failureReason === 'RECONCILIATION_REQUIRED' || ((p.status === 'SUCCESS' || p.status === 'FAILED') && p.status !== outcome)) return reply('99', 'Reconciliation required');
       return reply(p.status === 'SUCCESS' || p.status === 'FAILED' ? '02' : '00', 'Confirmed');
     } catch { return reply('99', 'Unable to confirm'); }
@@ -1102,13 +1174,19 @@ export class CommerceService implements OnModuleInit, OnModuleDestroy {
     const p = await this.db.payment.findFirst({ where: { id, ...(userId ? { order: { userId, isLegacy: false } } : { order: { isLegacy: false } }) } });
     if (!p) fail('NOT_FOUND', 'Không tìm thấy thanh toán.', 404);
     if (!p.providerPaymentId?.startsWith('vnpay:') || !['PENDING', 'UNKNOWN'].includes(p.status)) return p;
+    const now = Date.now();
+    // A network outage must not permanently exhaust reconciliation attempts.
+    // Retain the provider cooldown, including across concurrent requests.
+    for (const [paymentId, at] of this.inquiries) {
+      if (now - at >= 300000) this.inquiries.delete(paymentId);
+    }
     const previous = this.inquiries.get(id);
-    if (previous && (Date.now() - previous.at < 300000 || previous.attempts >= 10)) return { ...p, reconciliation: { reason: previous.attempts >= 10 ? 'ATTEMPT_LIMIT' : 'RATE_LIMITED', retryAfterSeconds: Math.max(0, Math.ceil((300000 - (Date.now() - previous.at)) / 1000)) } };
-    this.inquiries.set(id, { at: Date.now(), attempts: (previous?.attempts ?? 0) + 1 });
+    if (previous !== undefined) return { ...p, reconciliation: { reason: 'RATE_LIMITED', retryAfterSeconds: Math.ceil((300000 - (now - previous)) / 1000) } };
+    this.inquiries.set(id, now);
     let diagnostic: VNPayDiagnostic = { reason: 'NO_VERIFIED_RESULT' };
     try {
       const result = await this.vnpay.query(p.providerPaymentId.slice(6), p.createdAt, p.amount.toFixed(0), (value) => { diagnostic = value; });
-      if (result) return { ...await this.settleVerified(id, result.outcome, `vnpay:query:${result.params.vnp_ResponseId}`, result.params.vnp_TransactionNo, { source: 'querydr', transactionStatus: result.params.vnp_TransactionStatus, ...(result.params.vnp_PayDate ? { payDate: result.params.vnp_PayDate } : {}) }, vnParseDate(result.params.vnp_PayDate)), reconciliation: diagnostic };
+      if (result) return { ...await this.settleVerified(id, result.outcome, `vnpay:query:${result.params.vnp_ResponseId}`, result.params.vnp_TransactionNo || undefined, { source: 'querydr', transactionStatus: result.params.vnp_TransactionStatus, ...(result.params.vnp_PayDate ? { payDate: result.params.vnp_PayDate } : {}) }, vnParseDate(result.params.vnp_PayDate)), reconciliation: diagnostic };
     } catch { /* Network/config/signature uncertainty must never become FAILED. */ }
     await this.db.payment.updateMany({ where: { id, status: { in: ['PENDING', 'UNKNOWN'] } }, data: { status: 'UNKNOWN' } });
     return { ...await this.db.payment.findUniqueOrThrow({ where: { id } }), reconciliation: diagnostic };

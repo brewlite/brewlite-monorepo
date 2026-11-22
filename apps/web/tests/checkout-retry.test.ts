@@ -29,6 +29,10 @@ it('reuses payment attempt key after network loss and accepts only the Sandbox g
   vi.mocked(sendStore).mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce({ id: 'p', paymentUrl: 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_TxnRef=abc' });
   await expect(startVNPay('o')).rejects.toThrow('timeout'); await startVNPay('o');
   expect(vi.mocked(sendStore).mock.calls[0]).toEqual(vi.mocked(sendStore).mock.calls[1]);
+  expect(sessionStorage.getItem('brewlite-vnpay-o')).toBeNull();
+  vi.mocked(sendStore).mockResolvedValueOnce({ id: 'p2', paymentUrl: 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_TxnRef=def' });
+  await startVNPay('o');
+  expect(vi.mocked(sendStore).mock.calls[2][3]).not.toBe(vi.mocked(sendStore).mock.calls[0][3]);
   expect(() => paymentDestination('https://attacker.example/')).toThrow();
   expect(() => paymentDestination('https://pay.vnpay.vn/vpcpay.html')).toThrow();
 });

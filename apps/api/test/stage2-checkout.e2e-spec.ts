@@ -62,6 +62,7 @@ import path from 'node:path';
     process.env.DATABASE_URL = testUrl.toString(); process.env.VNPAY_TMN_CODE = 'STG2TEST'; process.env.VNPAY_HASH_SECRET = secret;
     process.env.VNPAY_RETURN_URL = 'http://localhost:3001/api/payments/vnpay/return';
     process.env.VNPAY_RECONCILE_ENABLED = 'false';
+    process.env.VNPAY_SETTLE_ON_RETURN = 'false';
     process.env.MOCK_PAYMENT_OUTCOME = 'SUCCESS';
     globalThis.fetch = noNetwork;
     process.env.FRONTEND_ORIGIN = 'http://localhost:3000,http://localhost:3100';
@@ -292,6 +293,21 @@ import path from 'node:path';
     expect(await db.paymentEvent.count({ where: { paymentId: p.id } })).toBe(1);
     expect((await get(`/orders/${o.id}`).expect(200)).body.history.at(-1).toStatus).toBe('PAID');
     await get(`/orders/${o.id}`, 1).expect(404); expect((await get('/orders').expect(200)).body.some((row: { id: string }) => row.id === o.id)).toBe(true);
+  });
+  it('settles verified Return once when VNPAY_SETTLE_ON_RETURN=true and deduplicates a later IPN', async () => {
+    process.env.VNPAY_SETTLE_ON_RETURN = 'true';
+    try {
+      const o = await placed(); const p = await payment(o.id); const params = event(p);
+      await request(app.getHttpServer()).get('/api/payments/vnpay/return').query({ ...params, vnp_SecureHash: '0'.repeat(128) }).expect(303);
+      expect((await db.order.findUniqueOrThrow({ where: { id: o.id } })).status).toBe('PENDING');
+      await request(app.getHttpServer()).get('/api/payments/vnpay/return').query(params).expect(303);
+      const afterReturn = await snapshot(o.id, p.id);
+      expect(afterReturn.payment.status).toBe('SUCCESS'); expect(afterReturn.order.status).toBe('PAID');
+      expect(afterReturn.reservation.state).toBe('CONSUMED'); expect(afterReturn.stock).toMatchObject({ onHand: 19, reserved: 0 });
+      expect(afterReturn.events).toHaveLength(1);
+      expect((await ipn(params)).body.RspCode).toBe('02');
+      expect(await snapshot(o.id, p.id)).toEqual(afterReturn);
+    } finally { process.env.VNPAY_SETTLE_ON_RETURN = 'false'; }
   });
   it.each(['order', 'reservation'])('quarantines signed success after %s expiry without consuming stock', async (expired) => {
     const o = await placed(); const p = await payment(o.id);
@@ -525,6 +541,59 @@ import path from 'node:path';
     expect((await db.size.findUniqueOrThrow({ where: { id: size } })).reserved).toBe(0);
     const second = await placed(); const mock = (await post(`/orders/${second.id}/payments`, { method: 'CARD' }).expect(201)).body;
     expect(mock.status).toBe('SUCCESS'); expect(mock.providerPaymentId.startsWith('vnpay:')).toBe(false);
+  });
+  it('runs full Counter POS cash shift lifecycle, cash refund, blind close, Admin reconciliation, and blocks staff paying app orders', async () => {
+    const staff = await staffCookie();
+    const adminEmail = `${randomUUID()}@example.test`;
+    await db.user.create({ data: { email: adminEmail, fullName: 'POS Admin fixture', role: 'ADMIN', emailVerifiedAt: new Date(), passwordHash: await bcrypt.hash('Stage2 isolated test password', 4) } });
+    const adminLogin = await request(app.getHttpServer()).post('/api/auth/login').set('Origin', 'http://localhost:3000').send({ email: adminEmail, password: 'Stage2 isolated test password' }).expect(200);
+    const admin = (adminLogin.headers['set-cookie'] as unknown as string[])[0].split(';')[0];
+    const staffPost = (url: string, body: object, key = randomUUID()) =>
+      request(app.getHttpServer()).post(`/api${url}`).set('Cookie', staff).set('Origin', 'http://localhost:3000').set('Idempotency-Key', key).send(body);
+    const adminPost = (url: string, body: object, key = randomUUID()) =>
+      request(app.getHttpServer()).post(`/api${url}`).set('Cookie', admin).set('Origin', 'http://localhost:3000').set('Idempotency-Key', key).send(body);
+
+    // 1. Walk-in POS order cannot collect CASH before opening a cash shift.
+    const pos1 = (await staffPost('/staff/pos/orders', { items: [item(1)], guestLabel: 'Anh Minh' }).expect(201)).body;
+    expect(pos1.channel).toBe('COUNTER_POS'); expect(pos1.userId).toBeNull(); expect(pos1.guestLabel).toBe('Anh Minh');
+    expect((await staffPost(`/staff/pos/orders/${pos1.id}/payments`, { method: 'CASH', cashTendered: 50000 }).expect(409)).body.code).toBe('SHIFT_REQUIRED');
+
+    // 2. Staff CANNOT use POS payment endpoint to settle a customer app order.
+    const appOrder = await placed();
+    await staffPost(`/staff/pos/orders/${appOrder.id}/payments`, { method: 'CASH', cashTendered: 100000 }).expect(404);
+
+    // 3. Open shift with 500,000 VND opening float; second concurrent open fails.
+    const shift = (await staffPost('/staff/pos/shifts/open', { openingFloat: 500000 }).expect(201)).body;
+    expect(shift.status).toBe('OPEN'); expect(shift.openingFloat).toBe('500000');
+    await staffPost('/staff/pos/shifts/open', { openingFloat: 100000 }).expect(409);
+
+    // 4. Collect cash for pos1 (40,000 VND) with 100,000 VND tendered -> 60,000 VND change; consumes 1 stock.
+    await staffPost(`/staff/pos/orders/${pos1.id}/payments`, { method: 'CASH', cashTendered: 20000 }).expect(400);
+    const pay1 = (await staffPost(`/staff/pos/orders/${pos1.id}/payments`, { method: 'CASH', cashTendered: 100000 }).expect(201)).body;
+    expect(pay1.method).toBe('CASH'); expect(pay1.status).toBe('SUCCESS'); expect(pay1.changeGiven).toBe('60000');
+    expect(pay1.order.status).toBe('PAID');
+    expect(await db.size.findUniqueOrThrow({ where: { id: size } })).toMatchObject({ onHand: 19, reserved: 1 }); // 1 held by appOrder
+
+    // 5. Create & pay pos2 (40,000 VND) by cash, then cancel + cash refund before PREPARING -> stock restored and shift tracks refund!
+    const pos2 = (await staffPost('/staff/pos/orders', { items: [item(1)], guestLabel: 'Chị Lan' }).expect(201)).body;
+    const pay2 = (await staffPost(`/staff/pos/orders/${pos2.id}/payments`, { method: 'CASH', cashTendered: 50000 }).expect(201)).body;
+    expect(pay2.order.status).toBe('PAID');
+    await staffPost(`/staff/pos/orders/${pos2.id}/cancel`, { expectedVersion: pay2.order.version, reason: '' }).expect(400);
+    const cancelled2 = (await staffPost(`/staff/pos/orders/${pos2.id}/cancel`, { expectedVersion: pay2.order.version, reason: 'Khách đổi ý tại quầy' }).expect(200)).body;
+    expect(cancelled2.status).toBe('CANCELLED');
+    expect(await db.size.findUniqueOrThrow({ where: { id: size } })).toMatchObject({ onHand: 19, reserved: 1 });
+
+    // 6. Close shift: expected = 500,000 + 80,000 - 40,000 = 540,000. Variance without note fails; exact count succeeds.
+    await staffPost('/staff/pos/shifts/current/close', { countedCash: 530000 }).expect(400);
+    const closed = (await staffPost('/staff/pos/shifts/current/close', { countedCash: 540000, closingNote: 'Khớp két' }).expect(200)).body;
+    expect(closed).toMatchObject({ status: 'CLOSED', openingFloat: '500000', cashCollected: '80000', cashRefunded: '40000', expectedCash: '540000', countedCash: '540000', variance: '0' });
+
+    // 7. Admin views cash shifts summary and reconciles the closed shift once (second reconcile fails 409).
+    const adminView = (await request(app.getHttpServer()).get('/api/admin/cash-shifts').set('Cookie', admin).expect(200)).body;
+    expect(adminView.shifts.some((s: { id: string; status: string }) => s.id === shift.id && s.status === 'CLOSED')).toBe(true);
+    const reconciled = (await adminPost(`/admin/cash-shifts/${shift.id}/reconcile`, { note: 'Đã thu đủ 540k' }).expect(200)).body;
+    expect(reconciled).toMatchObject({ status: 'RECONCILED', reconcileNote: 'Đã thu đủ 540k' });
+    await adminPost(`/admin/cash-shifts/${shift.id}/reconcile`, { note: 'Trùng' }).expect(409);
   });
   (process.env.STAGE2_BROWSER === '1' ? it : it.skip)('real Checkout UI → test Nest/PostgreSQL → mock wallet → confirmed result and history', async () => {
     await app.listen(0); const address = app.getHttpServer().address() as { port: number };

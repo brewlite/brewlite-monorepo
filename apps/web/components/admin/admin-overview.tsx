@@ -3,20 +3,28 @@ import type { Order } from '../../services/store.service';
 
 export type OverviewProduct = { id: string; name: string; isAvailable: boolean; category?: { isActive: boolean } | null };
 export type OverviewSize = { id: string; productId: string; name: string; onHand: number | null; reserved: number; isAvailable: boolean };
-export type OverviewData = { paidOrders: number; simulatedRevenue: string; products: number; label: string };
+export type OverviewData = {
+  paidOrders: number;
+  simulatedRevenue: string;
+  products: number;
+  pendingCashShifts?: number;
+  pendingCashTotal?: string;
+  label: string;
+};
 const sections = [
   { title: 'Bán hàng', entries: [
-    { key: 'orders', title: 'Giám sát đơn', description: 'Xem đơn mới, đơn chờ thanh toán và đơn đã hủy.', icon: 'orders' },
-    { key: 'promotions', title: 'Mã giảm giá', description: 'Tạo và quản lý mã khuyến mãi cho khách.', icon: 'ticket' },
+    { key: 'orders', title: 'Giám sát đơn', icon: 'orders' },
+    { key: 'cashShifts', title: 'Quỹ tiền mặt', icon: 'chart' },
+    { key: 'promotions', title: 'Mã giảm giá', icon: 'ticket' },
   ] },
   { title: 'Thực đơn', entries: [
-    { key: 'products', title: 'Sản phẩm', description: 'Thêm món, sửa giá, bật hoặc ẩn món.', icon: 'cup' },
-    { key: 'categories', title: 'Danh mục', description: 'Sắp xếp món thành nhóm như cà phê, trà.', icon: 'grid' },
-    { key: 'sizes', title: 'Size và tồn kho', description: 'Chỉnh giá theo size và quản lý số lượng còn lại.', icon: 'box' },
-    { key: 'toppings', title: 'Topping', description: 'Quản lý topping và giá thêm.', icon: 'topping' },
+    { key: 'products', title: 'Sản phẩm', icon: 'cup' },
+    { key: 'categories', title: 'Danh mục', icon: 'grid' },
+    { key: 'sizes', title: 'Size và tồn kho', icon: 'box' },
+    { key: 'toppings', title: 'Topping', icon: 'topping' },
   ] },
   { title: 'Tài khoản', entries: [
-    { key: 'users', title: 'Tài khoản', description: 'Xem khách hàng, nhân viên và điểm thưởng.', icon: 'users' },
+    { key: 'users', title: 'Tài khoản', icon: 'users' },
   ] },
 ];
 function Icon({ name }: { name: string }) {
@@ -39,25 +47,33 @@ export function AdminOverview({ data, products, sizes, orders, now, onNavigate, 
   const uninitialized = activeSizes.filter((size) => size.onHand === null);
   const low = activeSizes.filter((size) => size.onHand !== null && size.onHand - size.reserved <= 3);
   const expired = orders.filter((order) => order.status === 'PENDING' && order.expiresAt && new Date(order.expiresAt).getTime() < now);
+  const pendingShifts = data.pendingCashShifts ?? 0;
   const alerts = [
+    ...(pendingShifts > 0 ? [{ key: 'cashShifts', text: `${pendingShifts} ca thu ngân đã đóng chờ thu quỹ.`, action: 'Thu quỹ' }] : []),
     ...(expired.length ? [{ key: 'orders', text: `${expired.length} đơn quá hạn giữ hàng cần kiểm tra trong danh sách đơn gần nhất.`, action: 'Xem đơn' }] : []),
     ...(uninitialized.length ? [{ key: 'sizes', text: `${uninitialized.length} Size của món đang bán chưa nhập tồn kho.`, action: 'Nhập kho' }] : []),
     ...(low.length ? [{ key: 'sizes', text: `${low.length} Size có tồn khả dụng từ 0 đến 3 ly.`, action: 'Kiểm tra tồn' }] : []),
   ];
   return <div className="admin-overview">
-    <div className="admin-metrics">
-      <article><p>Đơn đã thanh toán</p><strong>{data.paidOrders}</strong><span>Tổng cộng, không bao gồm đơn legacy</span></article>
-      <article><p>Doanh thu thử nghiệm</p><strong>{formatPrice(data.simulatedRevenue)}đ</strong><span>Tổng cộng, không phải tiền thật</span></article>
-      <article><p>Sản phẩm đang bán</p><strong>{activeProducts.length}</strong><span>{products.length - activeProducts.length} món đang ẩn hoặc thuộc danh mục ngừng bán</span></article>
+    <div className="admin-metrics" style={data.pendingCashTotal !== undefined ? { gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' } : undefined}>
+      <article><p>Đơn đã thanh toán</p><strong>{data.paidOrders}</strong></article>
+      <article><p>Doanh thu</p><strong>{formatPrice(data.simulatedRevenue)}đ</strong></article>
+      <article><p>Sản phẩm đang bán</p><strong>{activeProducts.length}</strong>{products.length - activeProducts.length > 0 && <span>{products.length - activeProducts.length} món đang ẩn</span>}</article>
+      {data.pendingCashTotal !== undefined && (
+        <article style={pendingShifts > 0 ? { background: '#fff9ec', borderColor: '#d9a74a' } : undefined}>
+          <p>Quỹ tiền mặt chờ thu</p>
+          <strong>{formatPrice(data.pendingCashTotal)}đ</strong>
+          <span>{pendingShifts} ca đã đóng</span>
+        </article>
+      )}
     </div>
     {mode !== "statistics" && <section className="admin-attention" aria-label="Cần xử lý"><header><h2>Cần xử lý</h2><span>{alerts.length}</span></header>
       {!alerts.length && <p className="admin-no-alerts">Chưa có cảnh báo cần xử lý trong dữ liệu hiện tại.</p>}
       {alerts.map((alert, index) => <div className="admin-alert-row" key={`${alert.key}-${index}`}><span className="admin-alert-symbol" aria-hidden="true">!</span><p>{alert.text}</p><button onClick={() => onNavigate(alert.key)}>{alert.action}</button></div>)}
     </section>}
-    {mode !== "summary" && <details className="admin-statistics" open={mode === "statistics"}><summary><Icon name="chart" /><span><strong>Thống kê chi tiết</strong><small>Xem số liệu tổng quan từ dữ liệu hiện có.</small></span><span className="admin-chevron" aria-hidden="true">›</span></summary>
-      <dl><div><dt>Tổng số sản phẩm</dt><dd>{products.length}</dd></div><div><dt>Tổng số Size</dt><dd>{sizes.length}</dd></div><div><dt>Size của món đang bán chưa nhập tồn</dt><dd>{uninitialized.length}</dd></div><div><dt>Đơn gần nhất được kiểm tra</dt><dd>{orders.length}</dd></div></dl>
-      <p>Thống kê đơn và doanh thu là tổng tích lũy. Chưa hiển thị tăng trưởng theo ngày hoặc dự báo.</p>
+    {mode !== "summary" && <details className="admin-statistics" open={mode === "statistics"}><summary><Icon name="chart" /><span><strong>Thống kê chi tiết</strong></span><span className="admin-chevron" aria-hidden="true">›</span></summary>
+      <dl><div><dt>Tổng số sản phẩm</dt><dd>{products.length}</dd></div><div><dt>Tổng số Size</dt><dd>{sizes.length}</dd></div><div><dt>Size chưa nhập tồn</dt><dd>{uninitialized.length}</dd></div><div><dt>Đơn gần nhất</dt><dd>{orders.length}</dd></div></dl>
     </details>}
-    {!mode && sections.map((section) => <section className="admin-function-group" key={section.title}><h2>{section.title}</h2><div className="admin-function-grid">{section.entries.map((entry) => <button className="admin-function-card" key={entry.key} onClick={() => onNavigate(entry.key)}><span className="admin-function-icon"><Icon name={entry.icon} /></span><span className="admin-function-copy"><strong>{entry.title}</strong><small>{entry.description}</small></span><span className="admin-chevron" aria-hidden="true">›</span></button>)}</div></section>)}
+    {!mode && sections.map((section) => <section className="admin-function-group" key={section.title}><h2>{section.title}</h2><div className="admin-function-grid">{section.entries.map((entry) => <button className="admin-function-card" key={entry.key} onClick={() => onNavigate(entry.key)}><span className="admin-function-icon"><Icon name={entry.icon} /></span><span className="admin-function-copy"><strong>{entry.title}</strong></span><span className="admin-chevron" aria-hidden="true">›</span></button>)}</div></section>)}
   </div>;
 }

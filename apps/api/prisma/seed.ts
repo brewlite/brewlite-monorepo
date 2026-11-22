@@ -187,7 +187,6 @@ async function main() {
     create: {
       email: 'staff@brewlite.vn',
       fullName: 'Trần Thị Thu Ngân',
-      phone: '0909876543',
       passwordHash,
       role: UserRole.STAFF,
     },
@@ -199,7 +198,6 @@ async function main() {
     create: {
       email: 'customer@brewlite.vn',
       fullName: 'Lê Hoàng Khách Hàng',
-      phone: '0987654321',
       passwordHash,
       role: UserRole.CUSTOMER,
       loyaltyPoints: 120,

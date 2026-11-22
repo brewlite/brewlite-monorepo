@@ -1,0 +1,65 @@
+@startuml
+!pragma layout smetana
+left to right direction
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam usecaseBackgroundColor #F4FAFF
+skinparam usecaseBorderColor #35567C
+skinparam actorBorderColor #2F3E4E
+skinparam noteBackgroundColor #FFFDF2
+skinparam noteBorderColor #B59F5B
+
+title BrewLite — Sơ đồ Use-Case Trọng Tâm: Đặt và Thanh Toán Đơn Hàng (Assignment 2 - Task 1.3)
+
+actor "Khách hàng\n(Guest / CUSTOMER)" as C
+actor "Nhân viên thu ngân\n(STAFF — POS tại quầy)" as S
+actor "Cổng thanh toán\n(Mock Adapter / VNPay Sandbox)" as Pay
+actor "Dịch vụ Email\n(Gmail SMTP)" as Mail
+
+rectangle "Phạm vi Use-Case Trọng Tâm — Đặt & Thanh Toán Đơn Hàng" {
+  usecase "Đặt và thanh toán\nđơn hàng" as Core #DCEEFF
+
+  ' Bắt buộc (<<include>>)
+  usecase "Kiểm tra cấu hình &\ntồn kho theo Size\n(onHand - reserved)" as IncStock
+  usecase "Tính giá chính thức\ntrên Backend (Decimal)" as IncPrice
+  usecase "Tạo đơn PENDING &\ngiữ tài nguyên (TTL 10 phút)" as IncReserve
+  usecase "Thanh toán &\nxác minh kết quả\n(Idempotency-Key)" as IncPay
+  usecase "Chốt đơn PAID, trừ tồn,\ntích điểm & gửi thông báo" as IncSettle
+
+  ' Mở rộng / ngoại lệ (<<extend>>)
+  usecase "Đăng nhập / Đăng ký\n& xác minh Gmail OTP" as ExtAuth
+  usecase "Áp dụng mã giảm giá\n(cap tối đa 50%)" as ExtCoupon
+  usecase "Dùng điểm thưởng\n(100đ/điểm, cap 50%)" as ExtPoints
+  usecase "Thử thanh toán lại\n(tối đa 3 lần trong TTL)" as ExtRetry
+  usecase "Đối soát giao dịch\n(VNPay QueryDr)" as ExtReconcile
+  usecase "Hủy đơn & nhả tồn /\nhoàn tiền trước pha chế" as ExtCancel
+  usecase "Thu tiền mặt tại quầy\n(gắn CashShift OPEN &\ntính tiền thối)" as ExtCash
+}
+
+C -- Core
+S -- Core
+IncPay -- Pay
+ExtReconcile -- Pay
+ExtAuth -- Mail
+
+Core ..> IncStock : <<include>>
+Core ..> IncPrice : <<include>>
+Core ..> IncReserve : <<include>>
+Core ..> IncPay : <<include>>
+Core ..> IncSettle : <<include>>
+
+ExtAuth ..> Core : <<extend>>\n[E1: Guest chưa đăng nhập]
+ExtCoupon ..> Core : <<extend>>\n[A2: Có mã giảm giá]
+ExtPoints ..> Core : <<extend>>\n[A3: CUSTOMER dùng điểm]
+ExtRetry ..> IncPay : <<extend>>\n[E5: PAYMENT_FAILED\ntrong TTL & < 3 lần]
+ExtReconcile ..> IncPay : <<extend>>\n[E6: Trạng thái UNKNOWN\nhoặc chờ IPN]
+ExtCancel ..> Core : <<extend>>\n[Khách/STAFF hủy đơn\nhoặc quá hạn 10 phút]
+ExtCash ..> IncPay : <<extend>>\n[Đơn COUNTER_POS\ntrả tiền mặt]
+
+note bottom of Core
+  Kênh CUSTOMER_APP: dùng giỏ PostgreSQL, hỗ trợ mã giảm giá, điểm thưởng & Mock/VNPay.
+  Kênh COUNTER_POS: STAFF dùng chung Thực đơn & Giỏ hàng đặt thay khách trực tiếp
+  (không mã giảm giá/điểm thưởng), thanh toán 2 hình thức: Tiền mặt hoặc Chuyển khoản QR.
+end note
+@enduml

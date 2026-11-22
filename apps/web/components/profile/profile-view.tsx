@@ -6,7 +6,6 @@ import Link from "next/link";
 type UserProfile = {
   fullName: string;
   email: string;
-  phone: string;
   createdAt: string;
   loyaltyPoints: number;
 };
@@ -104,7 +103,6 @@ export default function ProfileView() {
   const [profile, setProfile] = useState<UserProfile>({
     fullName: "Tráº§n Ngá»c An",
     email: "ngocan@example.com",
-    phone: "0901234567",
     createdAt: "2026-11-01T08:00:00.000Z",
     loyaltyPoints: 120,
   });
@@ -115,7 +113,6 @@ export default function ProfileView() {
   const [editForm, setEditForm] = useState({
     fullName: profile.fullName,
     email: profile.email,
-    phone: profile.phone,
   });
 
   const [passwordForm, setPasswordForm] = useState({
@@ -131,7 +128,6 @@ export default function ProfileView() {
     setEditForm({
       fullName: profile.fullName,
       email: profile.email,
-      phone: profile.phone,
     });
     setEditMessage("");
     setIsEditOpen(true);
@@ -150,16 +146,10 @@ export default function ProfileView() {
       return;
     }
 
-    if (!/^0\\d{9}$/.test(editForm.phone)) {
-      setEditMessage("Sá»‘ Ä‘iá»‡n thoáº¡i pháº£i gá»“m 10 chá»¯ sá»‘ vÃ  báº¯t Ä‘áº§u báº±ng 0.");
-      return;
-    }
-
     setProfile((prev) => ({
       ...prev,
       fullName: editForm.fullName.trim(),
       email: editForm.email.trim(),
-      phone: editForm.phone.trim(),
     }));
 
     setEditMessage("Cáº­p nháº­t thÃ´ng tin thÃ nh cÃ´ng.");
@@ -221,7 +211,6 @@ export default function ProfileView() {
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             <InfoCard label="Há» vÃ  tÃªn" value={profile.fullName} />
             <InfoCard label="Email" value={profile.email} />
-            <InfoCard label="Sá»‘ Ä‘iá»‡n thoáº¡i" value={profile.phone} />
             <InfoCard label="NgÃ y táº¡o tÃ i khoáº£n" value={formatDate(profile.createdAt)} />
             <InfoCard
               label="Äiá»ƒm thÆ°á»Ÿng"
@@ -290,14 +279,6 @@ export default function ProfileView() {
                 value={editForm.email}
                 onChange={(value) =>
                   setEditForm((prev) => ({ ...prev, email: value }))
-                }
-              />
-
-              <FormField
-                label="Sá»‘ Ä‘iá»‡n thoáº¡i"
-                value={editForm.phone}
-                onChange={(value) =>
-                  setEditForm((prev) => ({ ...prev, phone: value }))
                 }
               />
 
